@@ -180,6 +180,7 @@ src/transports/deprecated/
 docs/deprecated/
 example-mcp-od-server-amqp/
 src/transports/__tests__/amqp-bidir.integration.test.ts
+.github/copilot-instructions.md
 
 # Lock files (keep package-lock.json for reproducible builds)
 # Uncomment the next line if you prefer to ignore lock files

@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2025-08-09
+## [1.0.0] - 2025-09-15
+
+First public release (curated history) — highlights:
+
+- OD‑aligned AMQP MCP transport (client/server, routing, recovery, session management)
+- Documentation overhaul (routing patterns, env mapping, Docker, examples, images)
+- License switched to Apache‑2.0 and NOTICE added
+- Cleanup of deprecated/bridge code and refined .gitignore
+- Examples updated to new transport patterns
 
 ### Added
 

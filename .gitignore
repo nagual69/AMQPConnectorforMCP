@@ -156,7 +156,6 @@ Desktop.ini
 /coverage
 /test-results
 /.jest
-jest.setup.js
 
 # Local development
 .env.local

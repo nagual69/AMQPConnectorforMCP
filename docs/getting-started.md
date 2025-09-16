@@ -5,19 +5,19 @@
 ### npm
 
 ```bash
-npm install amqp-mcp-transport
+npm install amqp-mcp-transport @modelcontextprotocol/sdk amqplib
 ```
 
 ### yarn
 
 ```bash
-yarn add amqp-mcp-transport
+yarn add amqp-mcp-transport @modelcontextprotocol/sdk amqplib
 ```
 
 ### pnpm
 
 ```bash
-pnpm add amqp-mcp-transport
+pnpm add amqp-mcp-transport @modelcontextprotocol/sdk amqplib
 ```
 
 ## Prerequisites
@@ -44,70 +44,53 @@ This will start RabbitMQ with:
 ### Client Transport Example
 
 ```typescript
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { AMQPClientTransport } from "amqp-mcp-transport";
 
-const client = new AMQPClientTransport({
-  url: "amqp://localhost:5672",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
-  requestTimeout: 30000,
+const transport = new AMQPClientTransport({
+  amqpUrl: "amqp://localhost:5672",
+  exchangeName: "mcp.notifications",
+  serverQueuePrefix: "mcp.server",
+  responseTimeout: 30000,
 });
 
-// Connect to the broker
-await client.connect();
+const client = new Client(
+  { name: "example", version: "1.0.0" },
+  { capabilities: {} }
+);
 
-// Send a message
-const response = await client.send({
-  jsonrpc: "2.0",
-  id: 1,
-  method: "tools/list",
-  params: {},
-});
+// Connect: the SDK will call transport.start() internally
+await client.connect(transport);
 
-console.log("Response:", response);
+// Use the MCP client API
+const tools = await client.listTools();
+console.log("Tools:", tools.tools);
 
-// Close connection
 await client.close();
 ```
 
 ### Server Transport Example
 
 ```typescript
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { AMQPServerTransport } from "amqp-mcp-transport";
 
-const server = new AMQPServerTransport({
-  url: "amqp://localhost:5672",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
-  enableBidirectional: true,
+const transport = new AMQPServerTransport({
+  amqpUrl: "amqp://localhost:5672",
+  exchangeName: "mcp.notifications",
+  queuePrefix: "mcp.server",
 });
 
-// Set up message handler
-server.onmessage = async (message) => {
-  console.log("Received message:", message);
+const server = new Server(
+  { name: "example-server", version: "1.0.0" },
+  { capabilities: { tools: {}, resources: {}, prompts: {} } }
+);
 
-  // Handle the message and return response
-  return {
-    jsonrpc: "2.0",
-    id: message.id,
-    result: {
-      tools: [
-        {
-          name: "example_tool",
-          description: "An example tool",
-          inputSchema: {
-            type: "object",
-            properties: {},
-          },
-        },
-      ],
-    },
-  };
-};
+// Define handlers with the MCP SDK schemas (omitted for brevity)
 
-// Start the server
-await server.start();
-console.log("Server started and listening for messages");
+// Connect: the SDK will call transport.start() internally
+await server.connect(transport);
+console.log("Server started over AMQP");
 ```
 
 ## Configuration
@@ -115,43 +98,28 @@ console.log("Server started and listening for messages");
 ### Basic Configuration
 
 ```typescript
-import { AMQPConfig } from "amqp-mcp-transport";
+import type { AMQPClientTransportOptions } from "amqp-mcp-transport";
 
-const config: AMQPConfig = {
-  url: "amqp://localhost:5672",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
+const config: AMQPClientTransportOptions = {
+  amqpUrl: "amqp://localhost:5672",
+  exchangeName: "mcp.notifications",
+  serverQueuePrefix: "mcp.server",
 };
 ```
 
 ### Advanced Configuration
 
 ```typescript
-const advancedConfig: AMQPConfig = {
-  url: "amqp://user:pass@broker.example.com:5672/vhost",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
-  requestTimeout: 30000,
-  enableBidirectional: true,
+import type { AMQPClientTransportOptions } from "amqp-mcp-transport";
 
-  // Connection options
-  connectionOptions: {
-    heartbeat: 60,
-    locale: "en_US",
-  },
-
-  // Queue options
-  queueOptions: {
-    durable: true,
-    exclusive: false,
-    autoDelete: false,
-  },
-
-  // Consumer options
-  consumerOptions: {
-    noAck: false,
-    exclusive: false,
-  },
+const advancedConfig: AMQPClientTransportOptions = {
+  amqpUrl: "amqp://user:pass@broker.example.com:5672/vhost",
+  exchangeName: "mcp.notifications",
+  serverQueuePrefix: "mcp.server",
+  responseTimeout: 30000,
+  prefetchCount: 10,
+  reconnectDelay: 5000,
+  maxReconnectAttempts: 10,
 };
 ```
 
@@ -191,19 +159,19 @@ You can configure the transport using environment variables:
 ```bash
 # .env file
 AMQP_URL=amqp://localhost:5672
-AMQP_REQUEST_QUEUE=mcp_requests
-AMQP_RESPONSE_QUEUE=mcp_responses
-AMQP_REQUEST_TIMEOUT=30000
+AMQP_EXCHANGE=mcp.notifications
+AMQP_QUEUE_PREFIX=mcp.server
+AMQP_RESPONSE_TIMEOUT=30000
 ```
 
 ```typescript
 import { AMQPClientTransport } from "amqp-mcp-transport";
 
 const client = new AMQPClientTransport({
-  url: process.env.AMQP_URL || "amqp://localhost:5672",
-  requestQueue: process.env.AMQP_REQUEST_QUEUE || "mcp_requests",
-  responseQueue: process.env.AMQP_RESPONSE_QUEUE || "mcp_responses",
-  requestTimeout: parseInt(process.env.AMQP_REQUEST_TIMEOUT || "30000"),
+  amqpUrl: process.env.AMQP_URL || "amqp://localhost:5672",
+  exchangeName: process.env.AMQP_EXCHANGE || "mcp.notifications",
+  serverQueuePrefix: process.env.AMQP_QUEUE_PREFIX || "mcp.server",
+  responseTimeout: parseInt(process.env.AMQP_RESPONSE_TIMEOUT || "30000"),
 });
 ```
 

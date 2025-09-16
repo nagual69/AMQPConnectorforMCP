@@ -7,7 +7,7 @@
 - [Configuration](./configuration.md)
 - [Examples](./examples.md)
 - [Troubleshooting](./troubleshooting.md)
-- [Migration Guide](../src/transports/MIGRATION_SUMMARY.md)
+- Migration: see `src/transports/deprecated/MIGRATION_SUMMARY.md` for legacy JS to TS notes
 
 ## Overview
 
@@ -56,3 +56,14 @@ The AMQP MCP Transport provides enterprise-grade AMQP-based transport implementa
 - [GitHub Issues](https://github.com/your-org/AMQPConnectorforMCP/issues)
 - [Contributing Guidelines](../CONTRIBUTING.md)
 - [Changelog](../CHANGELOG.md)
+
+## License
+
+Apache License 2.0 — see the repository root `LICENSE` file for full text.
+
+Why Apache 2.0 here?
+
+- Includes an explicit patent license grant and defensive termination
+- Common for infrastructure libraries used in enterprises
+- Encourages adoption while protecting contributors and users
+- Compatible with many open-source and commercial distributions

@@ -1,224 +1,140 @@
 # Troubleshooting Guide
 
-This guide helps you diagnose and resolve common issues when using the AMQP MCP Transport.
+This guide targets the current AMQP transport design: bidirectional routing via a topic exchange using correlationId + replyTo for responses, and the MCP SDK-managed lifecycle.
 
-## Table of Contents
+## Quick checks
 
-- [Connection Issues](#connection-issues)
-- [Message Handling Issues](#message-handling-issues)
-- [Performance Issues](#performance-issues)
-- [Configuration Issues](#configuration-issues)
-- [Error Codes Reference](#error-codes-reference)
-- [Debugging Tools](#debugging-tools)
-- [Common Patterns](#common-patterns)
+- Client/server option names must match the new API
+  - Client: amqpUrl, serverQueuePrefix, exchangeName, responseTimeout?
+  - Server: amqpUrl, queuePrefix, exchangeName, prefetchCount?
+- Client and server must agree on both queuePrefix/serverQueuePrefix and exchangeName.
+- The routing exchange is `${exchangeName}.mcp.routing` (topic).
+- The MCP SDK calls transport.start() during connect(); don’t call start() manually.
 
-## Connection Issues
+## Connection issues
 
-### Cannot Connect to AMQP Broker
-
-**Symptoms:**
-
-- `ECONNREFUSED` errors
-- Connection timeouts
-- Authentication failures
-
-**Diagnosis:**
+### Can’t reach broker
 
 ```typescript
-import { testAmqpConnection } from "amqp-mcp-transport";
+import { AMQPClientTransport, testAmqpConnection } from "amqp-mcp-transport";
 
-// Test basic connectivity
-const canConnect = await testAmqpConnection("amqp://localhost:5672");
-if (!canConnect) {
-  console.log("Cannot connect to broker");
-}
-```
-
-**Solutions:**
-
-1. **Check broker status:**
-
-```bash
-# For RabbitMQ
-sudo systemctl status rabbitmq-server
-
-# Using Docker
-docker ps | grep rabbitmq
-```
-
-2. **Verify connection URL:**
-
-```typescript
-// Incorrect
-const config = {
-  url: "amqp://localhost:5673", // Wrong port
-  // ...
-};
-
-// Correct
-const config = {
-  url: "amqp://localhost:5672",
-  // ...
-};
-```
-
-3. **Check authentication:**
-
-```typescript
-// With credentials
-const config = {
-  url: "amqp://username:password@localhost:5672",
-  // ...
-};
-```
-
-4. **Test with minimal configuration:**
-
-```typescript
-import { AMQPClientTransport } from "amqp-mcp-transport";
-
-const client = new AMQPClientTransport({
-  url: "amqp://guest:guest@localhost:5672",
-  requestQueue: "test_requests",
-  responseQueue: "test_responses",
-  connectionOptions: {
-    connectionTimeout: 5000, // Shorter timeout for testing
-  },
+const transport = new AMQPClientTransport({
+  amqpUrl: "amqp://localhost:5672",
+  serverQueuePrefix: "mcp.example",
+  exchangeName: "mcp.notifications",
 });
 
-try {
-  await client.connect();
-  console.log("Connection successful");
-  await client.close();
-} catch (error) {
-  console.error("Connection failed:", error.message);
-}
+const health = await testAmqpConnection(transport);
+console.log("AMQP health:", health);
 ```
 
-### Connection Drops Frequently
-
-**Symptoms:**
-
-- Intermittent connection losses
-- `Connection closed` events
-- Transport reconnection attempts
-
-**Diagnosis:**
+Status snapshot
 
 ```typescript
-const client = new AMQPClientTransport(config);
+import { getAmqpStatus } from "amqp-mcp-transport";
 
-client.onclose = () => {
-  console.log("Connection closed at:", new Date().toISOString());
-};
-
-client.onerror = (error) => {
-  console.error("Connection error:", error);
-};
+// Example status including auto-recovery metadata
+const status = getAmqpStatus(transport as any, {
+  enabled: true,
+  status: "standby",
+  retryCount: 0,
+});
+console.log("AMQP status:", status);
 ```
 
-**Solutions:**
+PowerShell helpers (Windows):
 
-1. **Adjust heartbeat settings:**
+```powershell
+# RabbitMQ container running?
+docker ps --format 'table {{.Names}}\t{{.Ports}}' | Select-String rabbit
+
+# Native service status
+rabbitmqctl status
+```
+
+### Wrong URL or credentials
 
 ```typescript
-const config = {
-  url: "amqp://localhost:5672",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
-  connectionOptions: {
-    heartbeat: 30, // Increase heartbeat interval
-  },
-};
+// Wrong
+const bad = { amqpUrl: "amqp://localhost:5673" };
+
+// Right
+const ok = { amqpUrl: "amqp://user:pass@localhost:5672" };
 ```
 
-2. **Enable automatic reconnection:**
+### Minimal connectivity via SDK
 
 ```typescript
-class AutoReconnectClient {
-  private client: AMQPClientTransport;
-  private config: AMQPConfig;
-  private isReconnecting = false;
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { AMQPClientTransport } from "amqp-mcp-transport";
 
-  constructor(config: AMQPConfig) {
-    this.config = config;
-    this.createClient();
-  }
+const transport = new AMQPClientTransport({
+  amqpUrl: "amqp://guest:guest@localhost:5672",
+  serverQueuePrefix: "test.app",
+  exchangeName: "mcp.notifications",
+});
 
-  private createClient() {
-    this.client = new AMQPClientTransport(this.config);
-
-    this.client.onclose = () => {
-      if (!this.isReconnecting) {
-        this.reconnect();
-      }
-    };
-  }
-
-  private async reconnect() {
-    this.isReconnecting = true;
-    let attempts = 0;
-    const maxAttempts = 5;
-
-    while (attempts < maxAttempts) {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
-        await this.client.connect();
-        console.log("Reconnected successfully");
-        this.isReconnecting = false;
-        return;
-      } catch (error) {
-        attempts++;
-        console.log(`Reconnection attempt ${attempts} failed`);
-      }
-    }
-
-    console.error("Failed to reconnect after maximum attempts");
-    this.isReconnecting = false;
-  }
-}
+const client = new Client(
+  { name: "probe", version: "1.0.0" },
+  { capabilities: {} }
+);
+await client.connect(transport);
+await client.close();
 ```
 
-### SSL/TLS Connection Issues
+## Messages not flowing
 
-**Symptoms:**
+- Ensure both sides use the same exchangeName and queuePrefix/serverQueuePrefix.
+- The server should set prefetchCount to control concurrency.
+- Notifications are delivered over the same exchange; no extra queues needed.
 
-- SSL handshake failures
-- Certificate validation errors
-- `DEPTH_ZERO_SELF_SIGNED_CERT` errors
-
-**Solutions:**
-
-1. **For development with self-signed certificates:**
+Server probe
 
 ```typescript
-const config = {
-  url: "amqps://localhost:5671",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
-  connectionOptions: {
-    rejectUnauthorized: false, // Only for development!
-  },
-};
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { AMQPServerTransport } from "amqp-mcp-transport";
+
+const transport = new AMQPServerTransport({
+  amqpUrl: "amqp://localhost:5672",
+  queuePrefix: "mcp.example",
+  exchangeName: "mcp.notifications",
+});
+
+const server = new Server(
+  { name: "probe-server", version: "1.0.0" },
+  { capabilities: {} }
+);
+await server.connect(transport);
 ```
 
-2. **For production with proper certificates:**
+## Timeouts
+
+- Increase client responseTimeout for slow operations.
 
 ```typescript
-import fs from "fs";
-
-const config = {
-  url: "amqps://broker.example.com:5671",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
-  connectionOptions: {
-    ca: [fs.readFileSync("/path/to/ca.pem")],
-    cert: fs.readFileSync("/path/to/client-cert.pem"),
-    key: fs.readFileSync("/path/to/client-key.pem"),
-    servername: "broker.example.com",
-  },
-};
+const c = new AMQPClientTransport({
+  amqpUrl: "amqp://localhost:5672",
+  serverQueuePrefix: "mcp.example",
+  exchangeName: "mcp.notifications",
+  responseTimeout: 60000,
+});
 ```
+
+## TLS (amqps)
+
+- Use amqps:// URLs and provide CA/cert/key as required by your environment. Configure via your process/environment or amqplib connection options.
+
+## Debugging
+
+- Add logging around request/response handling in your app.
+- Inspect `${exchangeName}.mcp.routing` and bound queues in RabbitMQ Management UI.
+- Verify your broker policies don’t auto-delete transient queues you rely on.
+
+## Common pitfalls
+
+- Mixing old option names (url/requestQueue/responseQueue) with the new API.
+- Mismatched exchangeName or prefixes between client and server.
+- Manually calling start() instead of using SDK connect().
 
 ## Message Handling Issues
 
@@ -233,43 +149,36 @@ const config = {
 **Diagnosis:**
 
 ```typescript
-// Enable debug logging
-const server = new AMQPServerTransport({
-  url: "amqp://localhost:5672",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { AMQPServerTransport } from "amqp-mcp-transport";
+
+const transport = new AMQPServerTransport({
+  amqpUrl: "amqp://localhost:5672",
+  queuePrefix: "mcp.example",
+  exchangeName: "mcp.notifications",
 });
 
-server.onmessage = (message) => {
-  console.log("Received message:", message);
-  // Always return a response
-  return {
-    jsonrpc: "2.0",
-    id: message.id,
-    result: { received: true },
-  };
-};
-
-// Check if server is actually listening
-console.log("Server starting...");
-await server.start();
-console.log("Server started and listening");
+const server = new Server(
+  { name: "diag", version: "1.0.0" },
+  { capabilities: {} }
+);
+await server.connect(transport); // SDK starts the transport
+console.log("Server connected and listening");
 ```
 
 **Solutions:**
 
-1. **Verify queue names match:**
+1. **Verify prefixes and exchange match:**
 
 ```typescript
-// Client and server must use same queue names
 const clientConfig = {
-  requestQueue: "mcp_requests", // Client sends here
-  responseQueue: "mcp_responses", // Client receives here
+  serverQueuePrefix: "mcp.example",
+  exchangeName: "mcp.notifications",
 };
 
 const serverConfig = {
-  requestQueue: "mcp_requests", // Server receives here
-  responseQueue: "mcp_responses", // Server sends here
+  queuePrefix: "mcp.example",
+  exchangeName: "mcp.notifications",
 };
 ```
 
@@ -293,9 +202,11 @@ server.onmessage = async (message) => {
 };
 ```
 
-3. **Verify queue permissions:**
+3. **Verify queue/exchange in broker UI:**
 
-```bash
+```powershell
+# Check bound queues and routing keys in RabbitMQ Management UI
+Start-Process http://localhost:15672
 # Check RabbitMQ queue status
 rabbitmqctl list_queues name messages consumers
 ```
@@ -327,43 +238,20 @@ try {
 
 **Solutions:**
 
-1. **Increase timeout:**
+1. **Increase client responseTimeout:**
 
 ```typescript
-const config = {
-  url: "amqp://localhost:5672",
-  requestQueue: "mcp_requests",
-  responseQueue: "mcp_responses",
-  requestTimeout: 60000, // 60 seconds instead of default 30
-};
+const client = new AMQPClientTransport({
+  amqpUrl: "amqp://localhost:5672",
+  serverQueuePrefix: "mcp.example",
+  exchangeName: "mcp.notifications",
+  responseTimeout: 60000,
+});
 ```
 
-2. **Optimize server processing:**
+2. **Optimize server handlers:**
 
-```typescript
-server.onmessage = async (message) => {
-  // Add timeout to prevent hanging
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("Handler timeout")), 25000)
-  );
-
-  const processingPromise = processMessage(message);
-
-  try {
-    return await Promise.race([processingPromise, timeoutPromise]);
-  } catch (error) {
-    return {
-      jsonrpc: "2.0",
-      id: message.id,
-      error: {
-        code: -32603,
-        message: "Internal error",
-        data: error.message,
-      },
-    };
-  }
-};
-```
+Use the MCP SDK request handlers and implement timeouts within your business logic when needed.
 
 3. **Implement request queuing:**
 
@@ -660,14 +548,12 @@ class ManagedAMQPClient {
 ```typescript
 import { validateAmqpConfig } from "amqp-mcp-transport";
 
-const config = {
-  url: "amqp://localhost:5672",
-  requestQueue: "requests",
-  // Missing responseQueue
-};
-
-const errors = validateAmqpConfig(config);
-if (errors.length > 0) {
+const errors = validateAmqpConfig({
+  amqpUrl: "amqp://localhost:5672",
+  queuePrefix: "mcp.example",
+  exchangeName: "mcp.notifications",
+});
+if (errors.length) {
   console.error("Configuration errors:", errors);
 }
 ```
@@ -677,15 +563,21 @@ if (errors.length > 0) {
 1. **Use configuration validation:**
 
 ```typescript
-function createValidatedClient(
-  config: Partial<AMQPConfig>
-): AMQPClientTransport {
-  const errors = validateAmqpConfig(config);
-  if (errors.length > 0) {
+function createValidatedClient(config: {
+  amqpUrl: string;
+  serverQueuePrefix: string;
+  exchangeName: string;
+  responseTimeout?: number;
+}) {
+  const errors = validateAmqpConfig({
+    amqpUrl: config.amqpUrl,
+    queuePrefix: config.serverQueuePrefix,
+    exchangeName: config.exchangeName,
+  });
+  if (errors.length)
     throw new Error(`Configuration invalid: ${errors.join(", ")}`);
-  }
 
-  return new AMQPClientTransport(config as AMQPConfig);
+  return new AMQPClientTransport(config);
 }
 ```
 
@@ -693,29 +585,21 @@ function createValidatedClient(
 
 ```typescript
 function createClientWithDefaults(
-  partialConfig: Partial<AMQPConfig>
-): AMQPClientTransport {
-  const defaultConfig: AMQPConfig = {
-    url: "amqp://localhost:5672",
-    requestQueue: "mcp_requests",
-    responseQueue: "mcp_responses",
-    requestTimeout: 30000,
-    enableBidirectional: false,
-    connectionOptions: {
-      heartbeat: 60,
-    },
-    queueOptions: {
-      durable: true,
-      exclusive: false,
-      autoDelete: false,
-    },
-    consumerOptions: {
-      noAck: false,
-      exclusive: false,
-    },
-  };
+  partial: Partial<{
+    amqpUrl: string;
+    serverQueuePrefix: string;
+    exchangeName: string;
+    responseTimeout: number;
+  }>
+) {
+  const defaults = {
+    amqpUrl: "amqp://localhost:5672",
+    serverQueuePrefix: "mcp.example",
+    exchangeName: "mcp.notifications",
+    responseTimeout: 30000,
+  } as const;
 
-  const config = { ...defaultConfig, ...partialConfig };
+  const config = { ...defaults, ...partial };
   return new AMQPClientTransport(config);
 }
 ```

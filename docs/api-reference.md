@@ -4,183 +4,101 @@
 
 - [AMQPClientTransport](#amqpclienttransport)
 - [AMQPServerTransport](#amqpservertransport)
-- [Types and Interfaces](#types-and-interfaces)
+- [Options](#options)
 - [Utility Functions](#utility-functions)
 - [Error Types](#error-types)
 
 ## AMQPClientTransport
 
-Enterprise-grade AMQP client transport for MCP.
+AMQP client transport for MCP with enterprise-grade bidirectional routing. Use it with the MCP SDK client: the SDK will call start() internally when you call client.connect(transport).
 
 ### Constructor
 
 ```typescript
-new AMQPClientTransport(config: AMQPConfig)
+new AMQPClientTransport(config: AMQPClientTransportOptions)
 ```
 
-### Methods
+Required options:
 
-#### `connect(): Promise<void>`
+- amqpUrl: string
+- exchangeName: string
+- serverQueuePrefix: string
 
-Establishes connection to the AMQP broker and sets up necessary queues and exchanges.
+### Lifecycle
 
-```typescript
-await client.connect();
-```
+- start(): Promise<void> — Initializes connection, response queue, and subscribes to notifications. Called by the MCP SDK during Client.connect().
+- close(): Promise<void> — Closes channels and connection and clears pending requests.
+- setProtocolVersion(version: string): void — MCP SDK compatibility.
 
-#### `send(message: JSONRPCMessage): Promise<JSONRPCMessage>`
+### Message flow
 
-Sends a message and waits for a response with correlation handling.
+- Requests: Published to the topic exchange `${exchangeName}.mcp.routing` with routing key `mcp.request.{category}.{method}`. Each request includes correlationId and replyTo (the client’s exclusive response queue).
+- Responses: Received directly on the client’s response queue as raw JSON-RPC 2.0 messages (no envelope), matched by correlationId.
+- Notifications/events: Subscribed via `${exchangeName}.mcp.routing` with patterns `mcp.notification.#`, `mcp.event.#`, `discovery.notification.#`, `discovery.event.#`.
 
-```typescript
-const response = await client.send({
-  jsonrpc: "2.0",
-  id: 1,
-  method: "tools/list",
-  params: {},
-});
-```
+### Callbacks
 
-#### `close(): Promise<void>`
-
-Closes the connection and cleans up resources.
-
-```typescript
-await client.close();
-```
-
-### Properties
-
-#### `onclose?: () => void`
-
-Callback function called when the connection is closed.
-
-```typescript
-client.onclose = () => {
-  console.log("Connection closed");
-};
-```
-
-#### `onerror?: (error: Error) => void`
-
-Callback function called when an error occurs.
-
-```typescript
-client.onerror = (error) => {
-  console.error("Transport error:", error);
-};
-```
+- onmessage?: (message: JSONRPCMessage) => void — Invoked for responses and notifications.
+- onerror?: (error: Error) => void
+- onclose?: () => void
 
 ## AMQPServerTransport
 
-Enterprise-grade AMQP server transport for MCP.
+AMQP server transport for MCP that supports session/stream-based bidirectional routing and response correlation.
 
 ### Constructor
 
 ```typescript
-new AMQPServerTransport(config: AMQPConfig)
+new AMQPServerTransport(config: AMQPServerTransportOptions)
 ```
 
-### Methods
+Required options:
 
-#### `start(): Promise<void>`
+- amqpUrl: string
+- exchangeName: string
+- queuePrefix: string
 
-Starts the server and begins listening for messages.
+### Lifecycle
 
-```typescript
-await server.start();
-```
+- start(): Promise<void> — Idempotent. Initializes basic queue, and bidirectional pub/sub channels. The MCP SDK will call this when you server.connect(transport).
+- close(): Promise<void> — Closes channels and connection.
+- setProtocolVersion(version: string): void — MCP SDK compatibility.
 
-#### `close(): Promise<void>`
+### Message flow
 
-Stops the server and closes connections.
+- Incoming requests are consumed from a session-specific queue bound to `${exchangeName}.mcp.routing` using patterns like:
+  - `{sessionId}.*`
+  - `mcp.request.#`, `mcp.tools.#`, `mcp.resources.#`, `mcp.prompts.#`
+- Routing info (correlationId, replyTo) is stored per requestId to route responses.
+- Responses are sent directly to the client replyTo queue with the original correlationId using sendToQueue.
+- Notifications are published to `${exchangeName}` using category-based routing keys.
 
-```typescript
-await server.close();
-```
+### Callbacks
 
-#### `send(message: JSONRPCMessage): Promise<void>`
+- onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void — The SDK will call transport.send() with the response.
+- onerror?: (error: Error) => void
+- onclose?: () => void
 
-Sends a message to clients (when bidirectional is enabled).
+## Options
 
-```typescript
-await server.send({
-  jsonrpc: "2.0",
-  method: "notifications/message",
-  params: { text: "Hello from server!" },
-});
-```
+```ts
+export interface AMQPTransportOptions {
+  amqpUrl: string;
+  exchangeName: string;
+  reconnectDelay?: number; // ms, default 5000
+  maxReconnectAttempts?: number; // default 10
+  prefetchCount?: number; // default 1 (server), 10 (client)
+  messageTTL?: number; // ms
+  queueTTL?: number; // ms
+}
 
-### Properties
+export interface AMQPServerTransportOptions extends AMQPTransportOptions {
+  queuePrefix: string; // e.g. "mcp.discovery"
+}
 
-#### `onmessage?: (message: JSONRPCMessage) => Promise<JSONRPCMessage> | JSONRPCMessage | void`
-
-Message handler function that processes incoming requests.
-
-```typescript
-server.onmessage = async (message) => {
-  if (message.method === "tools/list") {
-    return {
-      jsonrpc: "2.0",
-      id: message.id,
-      result: { tools: [] },
-    };
-  }
-};
-```
-
-#### `onclose?: () => void`
-
-Callback function called when the server connection is closed.
-
-#### `onerror?: (error: Error) => void`
-
-Callback function called when an error occurs.
-
-## Types and Interfaces
-
-### AMQPConfig
-
-Configuration interface for AMQP transports.
-
-```typescript
-interface AMQPConfig {
-  /** AMQP broker URL */
-  url: string;
-
-  /** Queue name for incoming requests */
-  requestQueue: string;
-
-  /** Queue name for outgoing responses */
-  responseQueue: string;
-
-  /** Request timeout in milliseconds (default: 30000) */
-  requestTimeout?: number;
-
-  /** Enable bidirectional communication (default: false) */
-  enableBidirectional?: boolean;
-
-  /** AMQP connection options */
-  connectionOptions?: {
-    heartbeat?: number;
-    locale?: string;
-    [key: string]: any;
-  };
-
-  /** Queue declaration options */
-  queueOptions?: {
-    durable?: boolean;
-    exclusive?: boolean;
-    autoDelete?: boolean;
-    [key: string]: any;
-  };
-
-  /** Consumer options */
-  consumerOptions?: {
-    noAck?: boolean;
-    exclusive?: boolean;
-    [key: string]: any;
-  };
+export interface AMQPClientTransportOptions extends AMQPTransportOptions {
+  serverQueuePrefix: string; // e.g. "mcp.discovery"
+  responseTimeout?: number; // ms, default 30000
 }
 ```
 
@@ -235,75 +153,72 @@ interface TransportMetrics {
 
 ### parseMessage
 
-Safely parses incoming AMQP messages with error handling.
+Safely parses incoming AMQP messages with error details.
 
 ```typescript
-function parseMessage(content: Buffer): JSONRPCMessage | null;
+function parseMessage(
+  content: Buffer | string,
+  transportType?: string
+): { success: boolean; message: JSONRPCMessage | null; error: Error | null };
 ```
 
 **Parameters:**
 
-- `content`: Raw message content buffer
+- `content`: Raw message content (Buffer or string)
+- `transportType`: Optional label for logs (e.g., 'amqp')
 
 **Returns:**
 
-- Parsed JSON-RPC message or `null` if parsing fails
+- Object with `success`, `message`, and `error` fields
 
 **Example:**
 
 ```typescript
 import { parseMessage } from "amqp-mcp-transport";
 
-const message = parseMessage(buffer);
-if (message) {
+const { success, message, error } = parseMessage(buffer, "amqp");
+if (!success) {
+  console.error("Failed to parse:", error);
+} else {
   console.log("Parsed message:", message);
 }
 ```
 
 ### getToolCategory
 
-Extracts tool category from message parameters for intelligent routing.
+Determines tool category from a method name for routing.
 
 ```typescript
-function getToolCategory(message: JSONRPCMessage): string;
+function getToolCategory(method: string): string;
 ```
 
-**Parameters:**
-
-- `message`: JSON-RPC message
-
-**Returns:**
-
-- Tool category string ('filesystem', 'network', 'database', etc.)
+**Returns:** Category string such as 'network', 'snmp', 'nmap', 'memory', or 'general'.
 
 **Example:**
 
 ```typescript
 import { getToolCategory } from "amqp-mcp-transport";
 
-const category = getToolCategory({
-  jsonrpc: "2.0",
-  method: "tools/call",
-  params: { name: "read_file" },
-});
-console.log("Category:", category); // 'filesystem'
+console.log(getToolCategory("nmap_scan")); // 'nmap'
+console.log(getToolCategory("ping")); // 'network'
 ```
 
 ### validateAmqpConfig
 
-Validates AMQP configuration object.
+Validates required AMQP configuration values.
 
 ```typescript
-function validateAmqpConfig(config: Partial<AMQPConfig>): string[];
+function validateAmqpConfig(config: {
+  amqpUrl: string;
+  queuePrefix: string;
+  exchangeName: string;
+  reconnectDelay?: number;
+  maxReconnectAttempts?: number;
+  prefetchCount?: number;
+}): string[];
 ```
 
-**Parameters:**
-
-- `config`: Configuration object to validate
-
-**Returns:**
-
-- Array of validation error messages (empty if valid)
+**Returns:** Array of validation error messages (empty when valid).
 
 **Example:**
 
@@ -311,60 +226,50 @@ function validateAmqpConfig(config: Partial<AMQPConfig>): string[];
 import { validateAmqpConfig } from "amqp-mcp-transport";
 
 const errors = validateAmqpConfig({
-  url: "amqp://localhost:5672",
-  requestQueue: "requests",
-  // missing responseQueue
+  amqpUrl: "amqp://localhost:5672",
+  queuePrefix: "mcp.server",
+  exchangeName: "mcp.notifications",
 });
 
-if (errors.length > 0) {
-  console.error("Config errors:", errors);
-}
+if (errors.length) console.error("Config errors:", errors);
 ```
 
 ### testAmqpConnection
 
-Tests connectivity to an AMQP broker.
+Publishes a heartbeat using the provided transport connection to verify broker health.
 
 ```typescript
-function testAmqpConnection(url: string): Promise<boolean>;
+function testAmqpConnection(transport: any): Promise<{
+  healthy: boolean;
+  reason?: string;
+  timestamp: string;
+}>;
 ```
-
-**Parameters:**
-
-- `url`: AMQP broker URL
-
-**Returns:**
-
-- Promise that resolves to `true` if connection successful
 
 **Example:**
 
 ```typescript
-import { testAmqpConnection } from "amqp-mcp-transport";
+import { AMQPClientTransport, testAmqpConnection } from "amqp-mcp-transport";
 
-const isConnected = await testAmqpConnection("amqp://localhost:5672");
-if (!isConnected) {
-  console.error("Cannot connect to AMQP broker");
-}
+const transport = new AMQPClientTransport({
+  amqpUrl: "amqp://localhost:5672",
+  serverQueuePrefix: "mcp.server",
+  exchangeName: "mcp.notifications",
+});
+
+const health = await testAmqpConnection(transport);
+console.log(health);
 ```
 
 ### detectMessageType
 
-Analyzes message content to determine its type and purpose.
+Analyzes a JSON-RPC message to determine its role.
 
 ```typescript
 function detectMessageType(
   message: JSONRPCMessage
-): "request" | "response" | "notification" | "error";
+): "request" | "response" | "notification";
 ```
-
-**Parameters:**
-
-- `message`: JSON-RPC message to analyze
-
-**Returns:**
-
-- Message type classification
 
 **Example:**
 
@@ -425,46 +330,4 @@ class ValidationError extends AMQPTransportError {
 }
 ```
 
-## Events
-
-Both client and server transports emit events that can be listened to:
-
-### Connection Events
-
-```typescript
-transport.on("connect", () => {
-  console.log("Connected to AMQP broker");
-});
-
-transport.on("disconnect", () => {
-  console.log("Disconnected from AMQP broker");
-});
-
-transport.on("reconnect", (attempt: number) => {
-  console.log(`Reconnection attempt ${attempt}`);
-});
-```
-
-### Message Events
-
-```typescript
-transport.on("message:sent", (message: JSONRPCMessage) => {
-  console.log("Message sent:", message);
-});
-
-transport.on("message:received", (message: JSONRPCMessage) => {
-  console.log("Message received:", message);
-});
-
-transport.on("message:error", (error: Error, message: JSONRPCMessage) => {
-  console.error("Message error:", error, message);
-});
-```
-
-### Performance Events
-
-```typescript
-transport.on("metrics:update", (metrics: TransportMetrics) => {
-  console.log("Performance metrics:", metrics);
-});
-```
+<!-- Events section removed: transports expose callbacks (onmessage, onerror, onclose) rather than an EventEmitter API. Refer to the Callbacks section for each transport. -->

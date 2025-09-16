@@ -156,6 +156,7 @@ Desktop.ini
 /coverage
 /test-results
 /.jest
+jest.setup.js
 
 # Local development
 .env.local
@@ -179,6 +180,7 @@ docs/build/
 src/transports/deprecated/
 docs/deprecated/
 example-mcp-od-server-amqp/
+src/transports/__tests__/amqp-bidir.integration.test.ts
 
 # Lock files (keep package-lock.json for reproducible builds)
 # Uncomment the next line if you prefer to ignore lock files
@@ -186,3 +188,7 @@ package-lock.json
 # yarn.lock
 
 example-mcp-od-server-amqp/
+
+# Local developer overrides (do not track)
+.eslintrc.json
+tsconfig.eslint.json

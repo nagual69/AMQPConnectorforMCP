@@ -175,9 +175,14 @@ docs/build/
 *.backup
 *.orig
 
-./src/transports/deprecated/
+# Deprecated code (excluded from builds)
+src/transports/deprecated/
+docs/deprecated/
+example-mcp-od-server-amqp/
 
 # Lock files (keep package-lock.json for reproducible builds)
 # Uncomment the next line if you prefer to ignore lock files
-# package-lock.json
+package-lock.json
 # yarn.lock
+
+example-mcp-od-server-amqp/

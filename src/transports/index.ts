@@ -16,11 +16,11 @@
  */
 
 // Enhanced versions with enterprise patterns from JS analysis
-export { AMQPClientTransport } from "./amqp-client-transport";
-export { AMQPServerTransport } from "./amqp-server-transport";
+export { AMQPClientTransport } from "./amqp-client-transport.js";
+export { AMQPServerTransport } from "./amqp-server-transport.js";
 
 // Utility functions extracted from JavaScript implementations
-export * from "./amqp-utils";
+export * from "./amqp-utils.js";
 
 export type {
     AMQPClientTransportOptions,

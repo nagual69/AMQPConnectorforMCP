@@ -14,6 +14,15 @@
 import type { Transport, TransportSendOptions } from "./types.js";
 import type { JSONRPCMessage, MessageExtraInfo } from "./types.js";
 import type { AMQPServerTransportOptions, ConnectionState } from "./types.js";
+import type { Channel, ConsumeMessage } from 'amqplib';
+
+// Minimal connection interface to align with amqplib Promise API without version/type conflicts
+interface AMQPConnection {
+    createChannel(): Promise<Channel>;
+    on(event: 'error', listener: (err: Error) => void): void;
+    on(event: 'close', listener: () => void): void;
+    close(): Promise<void>;
+}
 
 // Enhanced request tracking interface (from JS analysis)
 interface PendingRequest {
@@ -47,10 +56,10 @@ function isJSONRPCNotification(msg: JSONRPCMessage): msg is JSONRPCMessage & { m
  */
 export class AMQPServerTransport implements Transport {
     // Core AMQP infrastructure
-    private connection?: any; // amqplib.Connection
-    private channel?: any; // amqplib.Channel
-    private pubsubChannel?: any; // amqplib.Channel for bidirectional routing
-    private requestQueue?: string;
+    private connection: AMQPConnection | null = null;
+    private channel: Channel | null = null;
+    private pubsubChannel: Channel | null = null; // for bidirectional routing
+    private requestQueue: string | null = null;
 
     // Connection state management
     private connectionState: ConnectionState = { connected: false, reconnectAttempts: 0 };
@@ -72,7 +81,57 @@ export class AMQPServerTransport implements Transport {
     // Transport interface callbacks (MCP SDK requirements)
     onclose?: () => void;
     onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+    private _onmessageInner: ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined;
+    private _onmessageUser: ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined;
+
+    // Getter and setter add a debug wrapper to track pending requests
+    get onmessage(): (message: JSONRPCMessage, extra?: MessageExtraInfo) => void {
+        // Return the original user handler to preserve identity in tests
+        return this._onmessageUser ?? (() => { /* no-op until set by SDK */ });
+    }
+
+    set onmessage(handler: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void) {
+        if (typeof handler === 'function') {
+            this._onmessageUser = handler;
+            this._onmessageInner = (message: JSONRPCMessage, extra?: MessageExtraInfo) => {
+                try {
+                    // Track this request for timing analysis (avoid duplicate if already tracked)
+                    const hasId = 'id' in message && message.id !== undefined && message.id !== null;
+                    const id = (message as { id?: string | number }).id;
+                    const method = (message as { method?: string }).method ?? 'unknown';
+
+                    if (hasId && id !== undefined && !this.pendingRequests.has(id)) {
+                        this.pendingRequests.set(id, {
+                            startTime: Date.now(),
+                            method
+                        });
+
+                        // Log a warning if no response within 10 seconds
+                        setTimeout(() => {
+                            if (id !== undefined && this.pendingRequests.has(id)) {
+                                const req = this.pendingRequests.get(id)!;
+                                console.warn('[AMQP Server] No response sent for request within 10 seconds:', {
+                                    messageId: id,
+                                    method: req.method,
+                                    elapsedMs: Date.now() - req.startTime
+                                });
+                            }
+                        }, 10000);
+                    }
+
+                    const h = this._onmessageUser;
+                    if (h) return h(message, extra);
+                } catch (error) {
+                    console.error('[AMQP Server] SDK onmessage handler threw error:', error);
+                    throw error;
+                }
+            };
+        } else {
+            // If cleared, set to a no-op to maintain contract
+            this._onmessageUser = undefined;
+            this._onmessageInner = () => { /* no-op */ };
+        }
+    }
 
     constructor(private options: AMQPServerTransportOptions) {
         this.validateOptions();
@@ -112,6 +171,11 @@ export class AMQPServerTransport implements Transport {
      * Start the enhanced transport with bidirectional channels
      */
     async start(): Promise<void> {
+        // Idempotent start: skip if already connected (SDK may call start() multiple times)
+        if (this.connectionState.connected) {
+            console.log('[AMQP Server] Transport already started, skipping start()');
+            return;
+        }
         try {
             await this.connect();
             // Setup both basic infrastructure AND advanced bidirectional channels
@@ -154,17 +218,19 @@ export class AMQPServerTransport implements Transport {
         // Enhanced message routing based on type
         switch (messageType) {
             case 'response':
-                await this.handleResponseMessage(message);
+                this.handleResponseMessage(message);
                 break;
             case 'request':
-                await this.handleRequestMessage(message);
+                this.handleRequestMessage(message);
                 break;
             case 'notification':
-                await this.handleNotificationMessage(message);
+                this.handleNotificationMessage(message);
                 break;
             default:
-                throw new Error(`Unknown message type for message: ${JSON.stringify(message)}`);
+        throw new Error(`Unknown message type for message: ${JSON.stringify(message)}`);
         }
+    // maintain async contract without changing behavior
+    await Promise.resolve();
     }
 
     /**
@@ -223,32 +289,36 @@ export class AMQPServerTransport implements Transport {
     private async connect(): Promise<void> {
         const amqp = await this.loadAMQPLibrary();
 
-        this.connection = await amqp.connect(this.options.amqpUrl);
+        this.connection = await amqp.connect(this.options.amqpUrl) as unknown as AMQPConnection;
 
         // Enhanced connection error handling with automatic recovery
-        this.connection.on('error', (error: Error) => {
+    const conn = this.connection;
+    if (!conn) throw new Error('AMQP connection not established');
+        conn.on('error', (error: Error) => {
             this.connectionState.connected = false;
             this.connectionState.lastError = error;
             this.onerror?.(error);
             this.scheduleReconnect();
         });
 
-        this.connection.on('close', () => {
+        conn.on('close', () => {
             this.connectionState.connected = false;
             console.log('[AMQP Server] Connection closed, scheduling reconnect...');
             this.scheduleReconnect();
         });
 
         // Create main channel with enhanced error handling
-        this.channel = await this.connection.createChannel();
+    this.channel = await conn.createChannel();
 
         // Enterprise-grade prefetch control for performance
-        if (this.options.prefetchCount) {
+        if (this.options.prefetchCount && this.channel) {
             await this.channel.prefetch(this.options.prefetchCount);
         }
 
         // Advanced channel error handling with recovery
-        this.channel.on('error', (error: Error) => {
+    const chMain = this.channel;
+    if (!chMain) throw new Error('AMQP channel not established');
+    chMain.on('error', (error: Error) => {
             console.warn(`[AMQP Server] Channel error: ${error.message}`);
             this.onerror?.(error);
 
@@ -258,12 +328,12 @@ export class AMQPServerTransport implements Transport {
             }
         });
 
-        this.channel.on('close', () => {
+        chMain.on('close', () => {
             console.log('[AMQP Server] Channel closed, attempting recovery...');
             this.scheduleChannelRecovery();
         });
 
-        await this.setupBasicInfrastructure();
+    await this.setupBasicInfrastructure();
     }
 
     /**
@@ -271,18 +341,20 @@ export class AMQPServerTransport implements Transport {
      */
     private async setupBasicInfrastructure(): Promise<void> {
         // Enhanced exchange and queue setup with enterprise-grade settings
-        await this.channel.assertExchange(this.options.exchangeName, 'topic', {
+    const channel = this.channel;
+    if (!channel) throw new Error('AMQP channel not established');
+    await channel.assertExchange(this.options.exchangeName, 'topic', {
             durable: true
         });
 
         this.requestQueue = `${this.options.queuePrefix}.requests`;
-        await this.channel.assertQueue(this.requestQueue, {
+    await channel.assertQueue(this.requestQueue, {
             durable: true,
             arguments: this.getQueueArguments()
         });
 
         // Enhanced consumer setup with error handling
-        await this.channel.consume(this.requestQueue, (msg: any) => {
+    await channel.consume(this.requestQueue, (msg: ConsumeMessage | null) => {
             if (msg) {
                 this.handleIncomingRequest(msg);
             }
@@ -296,18 +368,23 @@ export class AMQPServerTransport implements Transport {
         console.log('[AMQP Server] Setting up MCP bidirectional pub/sub channels...');
 
         // Create dedicated pub/sub channel for advanced routing
+        if (!this.connection) {
+            throw new Error('Connection not established');
+        }
         this.pubsubChannel = await this.connection.createChannel();
 
         // Create bidirectional routing exchange
         const exchangeName = `${this.options.exchangeName}.mcp.routing`;
-        await this.pubsubChannel.assertExchange(exchangeName, 'topic', {
+    const pub = this.pubsubChannel;
+    if (!pub) throw new Error('AMQP pubsub channel not established');
+        await pub.assertExchange(exchangeName, 'topic', {
             durable: true,
             autoDelete: false
         });
 
         // Create session-specific request queue for distributed load balancing
         const requestQueueName = `${this.options.queuePrefix}.requests.${this.sessionId}`;
-        const requestQueue = await this.pubsubChannel.assertQueue(requestQueueName, {
+        const requestQueue = await pub.assertQueue(requestQueueName, {
             durable: false,
             exclusive: true,
             autoDelete: true,
@@ -328,23 +405,23 @@ export class AMQPServerTransport implements Transport {
         ];
 
         for (const pattern of patterns) {
-            await this.pubsubChannel.bindQueue(requestQueue.queue, exchangeName, pattern);
+            await pub.bindQueue(requestQueue.queue, exchangeName, pattern);
         }
 
         // Setup advanced bidirectional request consumer
-        await this.pubsubChannel.consume(requestQueue.queue, async (msg: any) => {
+        await pub.consume(requestQueue.queue, (msg: ConsumeMessage | null) => {
             if (msg) {
                 try {
-                    await this.handleBidirectionalRequest(msg, exchangeName);
+                    this.handleBidirectionalRequest(msg, exchangeName);
                 } catch (error) {
                     console.error('[AMQP Server] Error in bidirectional request:', error);
-                    this.pubsubChannel.nack(msg, false, false);
+                    pub.nack(msg, false, false);
                 }
             }
         }, { noAck: false });
 
         // Register session for distributed routing
-        await this.registerSessionOwnership(exchangeName);
+        void this.registerSessionOwnership(exchangeName);
 
         console.log('[AMQP Server] Bidirectional channels setup complete:', {
             exchange: exchangeName,
@@ -357,68 +434,75 @@ export class AMQPServerTransport implements Transport {
     /**
      * CRITICAL: Advanced bidirectional request handling (key discovery from JS analysis)
      */
-    private async handleBidirectionalRequest(msg: any, exchangeName: string): Promise<void> {
-        const correlationId = msg.properties.correlationId;
-        const replyTo = msg.properties.replyTo;
+    private handleBidirectionalRequest(msg: ConsumeMessage, exchangeName: string): void {
+        const correlationId = typeof msg.properties.correlationId === 'string' ? msg.properties.correlationId : undefined;
+        const replyTo = typeof msg.properties.replyTo === 'string' ? msg.properties.replyTo : undefined;
         const routingKey = msg.fields.routingKey;
 
-        let content: any;
+        let content: unknown;
         try {
             content = JSON.parse(msg.content.toString());
         } catch (error) {
             console.error('[AMQP Server] Invalid JSON in request:', error);
-            this.pubsubChannel.nack(msg, false, false);
+            if (this.pubsubChannel) {
+                this.pubsubChannel.nack(msg, false, false);
+            }
             return;
         }
 
         // Extract JSON-RPC message (handle both envelope and direct formats - key discovery)
         let jsonRpcMessage: JSONRPCMessage;
-        if (content.message && typeof content.message === 'object') {
-            jsonRpcMessage = content.message;
-        } else if (content.id !== undefined || content.method !== undefined) {
-            jsonRpcMessage = content;
+        const obj = content as Record<string, unknown>;
+        if (obj && typeof obj === 'object' && obj.message && typeof obj.message === 'object') {
+            jsonRpcMessage = obj.message as JSONRPCMessage;
+        } else if ('id' in obj || 'method' in obj) {
+            jsonRpcMessage = obj as unknown as JSONRPCMessage;
         } else {
             console.error('[AMQP Server] Invalid message format');
-            this.pubsubChannel.nack(msg, false, false);
+            if (this.pubsubChannel) {
+                this.pubsubChannel.nack(msg, false, false);
+            }
             return;
         }
 
         // Ensure proper JSON-RPC format
-        if (!jsonRpcMessage.jsonrpc) {
-            (jsonRpcMessage as any).jsonrpc = '2.0';
+        if (!('jsonrpc' in jsonRpcMessage) || !jsonRpcMessage.jsonrpc) {
+            const base = jsonRpcMessage as unknown as Record<string, unknown>;
+            jsonRpcMessage = { ...base, jsonrpc: '2.0' } as JSONRPCMessage;
         }
 
         // CRITICAL: Store routing information for response correlation
         if ('id' in jsonRpcMessage && jsonRpcMessage.id !== undefined) {
-            this.storeRoutingInfo(jsonRpcMessage.id, {
-                correlationId,
-                replyTo,
-                exchangeName,
-                routingKey,
-                deliveryTag: msg.fields.deliveryTag
-            });
+            if (correlationId && replyTo) {
+                this.storeRoutingInfo(jsonRpcMessage.id, {
+                    correlationId,
+                    replyTo,
+                    exchangeName,
+                    routingKey,
+                    deliveryTag: msg.fields.deliveryTag
+                });
+            }
 
             // Track request for performance monitoring
             if (isJSONRPCRequest(jsonRpcMessage)) {
-                this.pendingRequests.set(jsonRpcMessage.id, {
+                const pending: PendingRequest = {
                     startTime: Date.now(),
-                    method: jsonRpcMessage.method,
-                    correlationId,
-                    replyTo
-                });
+                    method: jsonRpcMessage.method
+                };
+                if (correlationId) pending.correlationId = correlationId;
+                if (replyTo) pending.replyTo = replyTo;
+                this.pendingRequests.set(jsonRpcMessage.id, pending);
             }
         }
 
-        // Forward to MCP SDK - it will call send() with the response
-        this.onmessage?.(jsonRpcMessage, {
-            replyTo,
-            routingKey,
-            sessionId: this.sessionId,
-            streamId: this.streamId
-        } as any);
+    // Forward to MCP SDK - it will call send() with the response
+    const handler = this._onmessageInner ?? this.onmessage;
+    handler?.(jsonRpcMessage);
 
         // Acknowledge receipt
+    if (this.pubsubChannel) {
         this.pubsubChannel.ack(msg);
+    }
     }
 
     /**
@@ -447,7 +531,7 @@ export class AMQPServerTransport implements Transport {
     /**
      * CRITICAL: Enhanced response message handling (key discovery from JS analysis)
      */
-    private async handleResponseMessage(message: JSONRPCMessage): Promise<void> {
+    private handleResponseMessage(message: JSONRPCMessage): void {
         if (!('id' in message) || message.id === undefined) {
             throw new Error('Response message must have an id');
         }
@@ -464,12 +548,12 @@ export class AMQPServerTransport implements Transport {
         if (replyTo && this.pubsubChannel) {
             const messageBuffer = Buffer.from(JSON.stringify(message));
 
-            await this.pubsubChannel.sendToQueue(replyTo, messageBuffer, {
+            this.pubsubChannel.sendToQueue(replyTo, messageBuffer, {
                 correlationId,
                 persistent: false
             });
 
-            console.log('[AMQP Server] Response sent to client queue:', replyTo);
+            console.log('[AMQP Server] ✅ Response sent to client queue:', replyTo);
         } else {
             throw new Error('No replyTo queue for response routing');
         }
@@ -478,7 +562,7 @@ export class AMQPServerTransport implements Transport {
     /**
      * Enhanced request message handling with tool category routing
      */
-    private async handleRequestMessage(message: JSONRPCMessage): Promise<void> {
+    private handleRequestMessage(message: JSONRPCMessage): void {
         if (!isJSONRPCRequest(message)) {
             throw new Error('Invalid request message format');
         }
@@ -487,7 +571,10 @@ export class AMQPServerTransport implements Transport {
         const routingKey = `mcp.request.${this.getToolCategory(message.method)}`;
         const messageBuffer = Buffer.from(JSON.stringify(message));
 
-        await this.channel.publish(this.options.exchangeName, routingKey, messageBuffer, {
+        // Publish to the MCP routing exchange to reach all interested consumers
+        const exchangeName = `${this.options.exchangeName}.mcp.routing`;
+        if (!this.channel) throw new Error('AMQP channel not established');
+        this.channel.publish(exchangeName, routingKey, messageBuffer, {
             persistent: true,
             timestamp: Date.now(),
             correlationId: message.id?.toString()
@@ -497,7 +584,7 @@ export class AMQPServerTransport implements Transport {
     /**
      * Enhanced notification message handling
      */
-    private async handleNotificationMessage(message: JSONRPCMessage): Promise<void> {
+    private handleNotificationMessage(message: JSONRPCMessage): void {
         if (!isJSONRPCNotification(message)) {
             throw new Error('Invalid notification message format');
         }
@@ -505,7 +592,10 @@ export class AMQPServerTransport implements Transport {
         const routingKey = this.getNotificationRoutingKey(message);
         const messageBuffer = Buffer.from(JSON.stringify(message));
 
-        await this.channel.publish(this.options.exchangeName, routingKey, messageBuffer, {
+        // Publish notifications via the MCP routing exchange for consistency
+        const exchangeName = `${this.options.exchangeName}.mcp.routing`;
+        if (!this.channel) throw new Error('AMQP channel not established');
+        this.channel.publish(exchangeName, routingKey, messageBuffer, {
             persistent: false,
             timestamp: Date.now()
         });
@@ -514,42 +604,49 @@ export class AMQPServerTransport implements Transport {
     /**
      * Handle incoming requests from basic infrastructure
      */
-    private async handleIncomingRequest(msg: any): Promise<void> {
+    private handleIncomingRequest(msg: ConsumeMessage): void {
         try {
-            const content = JSON.parse(msg.content.toString());
+            const content = JSON.parse(msg.content.toString()) as unknown;
 
             // Extract JSON-RPC message (handle both envelope and direct formats)
             let jsonRpcMessage: JSONRPCMessage;
-            if (content.message && typeof content.message === 'object') {
-                jsonRpcMessage = content.message;
-            } else if (content.id !== undefined || content.method !== undefined) {
-                jsonRpcMessage = content;
+            const obj = content as Record<string, unknown>;
+            if (obj && typeof obj === 'object' && obj.message && typeof obj.message === 'object') {
+                jsonRpcMessage = obj.message as JSONRPCMessage;
+            } else if ('id' in obj || 'method' in obj) {
+                jsonRpcMessage = obj as unknown as JSONRPCMessage;
             } else {
                 throw new Error('Invalid message format');
             }
 
             // Store routing metadata for response correlation
             if ('id' in jsonRpcMessage && jsonRpcMessage.id !== undefined) {
-                this.storeRoutingInfo(jsonRpcMessage.id, {
-                    correlationId: msg.properties.correlationId,
-                    replyTo: msg.properties.replyTo,
-                    exchangeName: this.options.exchangeName,
-                    routingKey: msg.fields.routingKey,
-                    deliveryTag: msg.fields.deliveryTag
-                });
+                const corr = typeof msg.properties.correlationId === 'string' ? msg.properties.correlationId : undefined;
+                const rto = typeof msg.properties.replyTo === 'string' ? msg.properties.replyTo : undefined;
+                if (corr && rto) {
+                    this.storeRoutingInfo(jsonRpcMessage.id, {
+                        correlationId: corr,
+                        replyTo: rto,
+                        exchangeName: this.options.exchangeName,
+                        routingKey: msg.fields.routingKey,
+                        deliveryTag: msg.fields.deliveryTag
+                    });
+                }
 
                 if (isJSONRPCRequest(jsonRpcMessage)) {
-                    this.pendingRequests.set(jsonRpcMessage.id, {
+                    const pending: PendingRequest = {
                         startTime: Date.now(),
-                        method: jsonRpcMessage.method,
-                        correlationId: msg.properties.correlationId,
-                        replyTo: msg.properties.replyTo
-                    });
+                        method: jsonRpcMessage.method
+                    };
+                    if (corr) pending.correlationId = corr;
+                    if (rto) pending.replyTo = rto;
+                    this.pendingRequests.set(jsonRpcMessage.id, pending);
                 }
             }
 
             // Forward to MCP SDK
-            this.onmessage?.(jsonRpcMessage);
+            const handler = this._onmessageInner ?? this.onmessage;
+            handler?.(jsonRpcMessage);
 
             // Safe acknowledgment
             this.safeAck(msg);
@@ -602,15 +699,15 @@ export class AMQPServerTransport implements Transport {
         return 'mcp.notification.general';
     }
 
-    private getQueueArguments(): Record<string, any> {
-        const args: Record<string, any> = {};
-
-        if (this.options.queueTTL) {
-            args['x-message-ttl'] = this.options.queueTTL;
-        }
+    private getQueueArguments(): Record<string, number> {
+        const args: Record<string, number> = {};
 
         if (this.options.messageTTL) {
-            args['x-expires'] = this.options.messageTTL;
+            args['x-message-ttl'] = this.options.messageTTL;
+        }
+
+        if (this.options.queueTTL) {
+            args['x-expires'] = this.options.queueTTL;
         }
 
         return args;
@@ -619,8 +716,8 @@ export class AMQPServerTransport implements Transport {
     /**
      * Enhanced safe message acknowledgment (from JS analysis)
      */
-    private safeAck(msg: any): void {
-        if (this.channel && !this.channel.closing) {
+    private safeAck(msg: ConsumeMessage): void {
+        if (this.channel) {
             try {
                 this.channel.ack(msg);
             } catch (error) {
@@ -629,8 +726,8 @@ export class AMQPServerTransport implements Transport {
         }
     }
 
-    private safeNack(msg: any): void {
-        if (this.channel && !this.channel.closing) {
+    private safeNack(msg: ConsumeMessage): void {
+        if (this.channel) {
             try {
                 this.channel.nack(msg, false, false);
             } catch (error) {
@@ -642,7 +739,7 @@ export class AMQPServerTransport implements Transport {
     /**
      * Session ownership registration for distributed routing (from JS analysis)
      */
-    private async registerSessionOwnership(exchangeName: string): Promise<void> {
+    private registerSessionOwnership(exchangeName: string): void {
         const ownershipMessage = {
             type: 'session_ownership',
             sessionId: this.sessionId,
@@ -655,7 +752,7 @@ export class AMQPServerTransport implements Transport {
         const routingKey = `mcp.session.ownership.${this.sessionId}`;
 
         if (this.pubsubChannel) {
-            await this.pubsubChannel.publish(
+            this.pubsubChannel.publish(
                 exchangeName,
                 routingKey,
                 Buffer.from(JSON.stringify(ownershipMessage)),
@@ -686,17 +783,18 @@ export class AMQPServerTransport implements Transport {
         this.connectionState.reconnectAttempts++;
         const delay = this.options.reconnectDelay || 5000;
 
-        setTimeout(async () => {
-            try {
-                await this.connect();
-                await this.setupBidirectionalChannels();
-                this.connectionState.connected = true;
-                this.connectionState.reconnectAttempts = 0;
-                console.log('[AMQP Server] Reconnection successful');
-            } catch (error) {
-                this.connectionState.lastError = error as Error;
-                this.scheduleReconnect();
-            }
+        setTimeout(() => {
+            void this.connect()
+                .then(() => this.setupBidirectionalChannels())
+                .then(() => {
+                    this.connectionState.connected = true;
+                    this.connectionState.reconnectAttempts = 0;
+                    console.log('[AMQP Server] Reconnection successful');
+                })
+                .catch((error) => {
+                    this.connectionState.lastError = error as Error;
+                    this.scheduleReconnect();
+                });
         }, delay);
     }
 
@@ -708,33 +806,35 @@ export class AMQPServerTransport implements Transport {
 
         this.channelRecovering = true;
 
-        setTimeout(async () => {
-            try {
-                if (this.connection && !this.connection.closing) {
-                    // Recreate channel
-                    this.channel = await this.connection.createChannel();
+        setTimeout(() => {
+            void (async () => {
+                try {
+                    if (this.connection) {
+                        // Recreate channel
+                        this.channel = await this.connection.createChannel();
 
-                    if (this.options.prefetchCount) {
-                        await this.channel.prefetch(this.options.prefetchCount);
+                        if (this.options.prefetchCount && this.channel) {
+                            await this.channel.prefetch(this.options.prefetchCount);
+                        }
+
+                        // Re-setup infrastructure
+                        await this.setupBasicInfrastructure();
+                        console.log('[AMQP Server] Channel recovery completed successfully');
                     }
-
-                    // Re-setup infrastructure
-                    await this.setupBasicInfrastructure();
-                    console.log('[AMQP Server] Channel recovery completed successfully');
+                } catch (error) {
+                    console.error('[AMQP Server] Channel recovery failed:', error);
+                    this.scheduleReconnect();
+                } finally {
+                    this.channelRecovering = false;
                 }
-            } catch (error) {
-                console.error('[AMQP Server] Channel recovery failed:', error);
-                this.scheduleReconnect();
-            } finally {
-                this.channelRecovering = false;
-            }
+            })();
         }, 1000);
     }
 
     /**
      * Dynamic AMQP library loading
      */
-    private async loadAMQPLibrary(): Promise<any> {
+    private async loadAMQPLibrary(): Promise<typeof import('amqplib')> {
         try {
             return await import('amqplib');
         } catch (error) {

@@ -25,7 +25,8 @@ export interface LogEntry {
     transport: string;
     sessionId: string;
     operation: string;
-    [key: string]: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [key: string]: unknown;
 }
 
 /**
@@ -71,28 +72,6 @@ export function getToolCategory(method: string): string {
 }
 
 /**
- * Validate and parse JSON message with error handling
- * Extracted from base-amqp-transport.js
- */
-export function parseMessage(content: Buffer | string, transportType: string = 'amqp'): ParseResult {
-    try {
-        const message = JSON.parse(content.toString());
-        return {
-            success: true,
-            message,
-            error: null
-        };
-    } catch (parseError) {
-        console.error(`[AMQP ${transportType}] Failed to parse message JSON:`, parseError);
-        return {
-            success: false,
-            message: null,
-            error: parseError as Error
-        };
-    }
-}
-
-/**
  * Create structured log entry for debugging
  * Extracted from base-amqp-transport.js
  */
@@ -100,7 +79,7 @@ export function createLogEntry(
     transport: string,
     sessionId: string,
     operation: string,
-    data: Record<string, any> = {}
+    data: Record<string, unknown> = {}
 ): LogEntry {
     return {
         timestamp: new Date().toISOString(),
@@ -190,7 +169,21 @@ export function validateAmqpConfig(config: {
  * Test AMQP connection health by sending a heartbeat message
  * Extracted from amqp-transport-integration.js
  */
-export async function testAmqpConnection(transport: any): Promise<HealthCheckResult> {
+
+// Minimal AMQP transport/channel interfaces for type safety
+interface AmqpChannel {
+    assertExchange(exchange: string, type: string, options: object): Promise<unknown>;
+    publish(exchange: string, routingKey: string, content: Buffer): boolean;
+    close(): Promise<void>;
+}
+interface AmqpConnection {
+    createChannel(): Promise<AmqpChannel>;
+}
+interface AmqpTransport {
+    connection?: AmqpConnection;
+}
+
+export async function testAmqpConnection(transport: AmqpTransport): Promise<HealthCheckResult> {
     if (!transport || !transport.connection) {
         return {
             healthy: false,
@@ -203,7 +196,7 @@ export async function testAmqpConnection(transport: any): Promise<HealthCheckRes
         // Try to send a simple test message to verify connection
         const testChannel = await transport.connection.createChannel();
         await testChannel.assertExchange('mcp.heartbeat', 'fanout', { durable: false });
-        await testChannel.publish('mcp.heartbeat', '', Buffer.from(JSON.stringify({
+        testChannel.publish('mcp.heartbeat', '', Buffer.from(JSON.stringify({
             type: 'heartbeat',
             timestamp: new Date().toISOString(),
             source: 'mcp-amqp-transport'
@@ -227,7 +220,17 @@ export async function testAmqpConnection(transport: any): Promise<HealthCheckRes
  * Get AMQP connection status including auto-recovery information
  * Extracted from amqp-transport-integration.js
  */
-export function getAmqpStatus(transport: any, autoRecoveryConfig?: any): AMQPStatus {
+export interface AutoRecoveryConfig {
+    enabled: boolean;
+    status?: string;
+    retryCount?: number;
+    lastAttempt?: string;
+    stopped?: boolean;
+}
+export function getAmqpStatus(
+    transport: AmqpTransport,
+    autoRecoveryConfig?: AutoRecoveryConfig
+): AMQPStatus {
     const status: AMQPStatus = {
         connected: !!transport,
         transport: !!transport,
@@ -237,10 +240,20 @@ export function getAmqpStatus(transport: any, autoRecoveryConfig?: any): AMQPSta
 
     // Include auto-recovery configuration if available
     if (autoRecoveryConfig) {
-        status.recovery = {
+        const recovery: { enabled: boolean; status: string; retryCount?: number; lastAttempt?: string; stopped?: boolean } = {
             enabled: autoRecoveryConfig.enabled,
-            status: 'standby' // Default status
+            status: autoRecoveryConfig.status ?? 'standby'
         };
+        if (autoRecoveryConfig.retryCount !== undefined) {
+            recovery.retryCount = autoRecoveryConfig.retryCount;
+        }
+        if (autoRecoveryConfig.lastAttempt !== undefined) {
+            recovery.lastAttempt = autoRecoveryConfig.lastAttempt;
+        }
+        if (autoRecoveryConfig.stopped !== undefined) {
+            recovery.stopped = autoRecoveryConfig.stopped;
+        }
+        status.recovery = recovery;
     } else {
         status.recovery = { enabled: false, status: 'disabled' };
     }
@@ -275,11 +288,36 @@ export function detectMessageType(message: JSONRPCMessage): 'request' | 'respons
 }
 
 /**
+ * Validate and parse JSON message with error handling
+ * Extracted from base-amqp-transport.js
+ */
+export function parseMessage(content: Buffer | string, transportType: string = 'amqp'): ParseResult {
+    try {
+        const raw = content.toString();
+        const message: unknown = JSON.parse(raw);
+        // Optionally: add runtime validation for JSONRPCMessage shape here
+        return {
+            success: true,
+            message: message as JSONRPCMessage,
+            error: null
+        };
+    } catch (parseError) {
+        console.error(`[AMQP ${transportType}] Failed to parse message JSON:`, parseError);
+        return {
+            success: false,
+            message: null,
+            error: parseError as Error
+        };
+    }
+}
+
+/**
  * Generate correlation ID for message tracking
  * Extracted from base-amqp-transport.js
  */
 export function generateCorrelationId(sessionId: string): string {
-    return `${sessionId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // .substr is deprecated, use .slice instead
+    return `${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { AMQPClientTransport } from "../src/index.js";
+import { AMQPClientTransport } from "../src/transports/index.js";
 
 /**
  * Example MCP client using AMQP transport
@@ -11,9 +11,9 @@ import { AMQPClientTransport } from "../src/index.js";
 async function main() {
     // Create AMQP transport
     const transport = new AMQPClientTransport({
-        amqpUrl: process.env.AMQP_URL || "amqp://localhost",
+        amqpUrl: process.env.AMQP_URL || "amqp://mcp:discovery@localhost:5672",
         serverQueuePrefix: "mcp.example",
-        exchangeName: "mcp.notifications",
+        exchangeName: process.env.AMQP_EXCHANGE || "mcp.examples",
         responseTimeout: 30000,
         reconnectDelay: 5000,
         maxReconnectAttempts: 10
@@ -43,29 +43,61 @@ async function main() {
         const resourcesResult = await client.listResources();
         console.log("Available resources:", resourcesResult.resources);
 
+        // List available prompts
+        const promptsResult = await client.listPrompts();
+        console.log("Available prompts:", promptsResult.prompts);
+
         // Example: Call a tool if available
         if (toolsResult.tools.length > 0) {
             const firstTool = toolsResult.tools[0];
-            console.log(`Calling tool: ${firstTool.name}`);
+            if (firstTool) {
+                console.log(`Calling tool: ${firstTool.name}`);
 
-            const toolResult = await client.callTool({
-                name: firstTool.name,
-                arguments: {}
-            });
+                // Provide required arguments if the tool expects them
+                const defaultArgs: Record<string, unknown> =
+                    firstTool.name === "echo" || firstTool.name === "reverse"
+                        ? { text: "Hello from AMQP client" }
+                        : {};
 
-            console.log("Tool result:", toolResult);
+                const toolResult = await client.callTool({
+                    name: firstTool.name,
+                    arguments: defaultArgs
+                });
+
+                console.log("Tool result:", toolResult);
+            }
         }
 
         // Example: Read a resource if available
         if (resourcesResult.resources.length > 0) {
             const firstResource = resourcesResult.resources[0];
-            console.log(`Reading resource: ${firstResource.uri}`);
+            if (firstResource) {
+                console.log(`Reading resource: ${firstResource.uri}`);
 
-            const resourceResult = await client.readResource({
-                uri: firstResource.uri
-            });
+                const resourceResult = await client.readResource({
+                    uri: firstResource.uri
+                });
 
-            console.log("Resource content:", resourceResult);
+                console.log("Resource content:", resourceResult);
+            }
+        }
+
+        // Example: Get a prompt if available
+        if (promptsResult.prompts.length > 0) {
+            const firstPrompt = promptsResult.prompts[0];
+            if (firstPrompt) {
+                console.log(`Getting prompt: ${firstPrompt.name}`);
+
+                const promptResult = await client.getPrompt({
+                    name: firstPrompt.name,
+                    arguments: {
+                        text: "Hello world! This is a test message for the AMQP MCP transport.",
+                        style: "brief"
+                    }
+                });
+
+                console.log("Prompt result:", promptResult);
+            }
         }
 
     } catch (error) {

@@ -1,6 +1,6 @@
 # Troubleshooting Guide
 
-This guide targets the current AMQP transport design: bidirectional routing via a topic exchange using correlationId + replyTo for responses, and the MCP SDK-managed lifecycle.
+This guide targets the current AMQP transport design: MCP-compliant raw JSON-RPC 2.0 messages on the wire, bidirectional routing via a topic exchange using correlationId + replyTo for responses, and the MCP SDK-managed lifecycle.
 
 ## Quick checks
 
@@ -308,9 +308,11 @@ import { parseMessage } from "amqp-mcp-transport";
 
 // Test message parsing
 const testBuffer = Buffer.from('{"invalid": json}');
-const parsed = parseMessage(testBuffer);
-if (!parsed) {
-  console.log("Failed to parse message");
+try {
+  const parsed = parseMessage(testBuffer);
+  console.log("Parsed successfully:", parsed);
+} catch (error) {
+  console.error("Failed to parse message:", error.message);
 }
 ```
 

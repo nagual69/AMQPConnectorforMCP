@@ -13,6 +13,8 @@
 
 The AMQP MCP Transport provides enterprise-grade AMQP-based transport implementations for the Model Context Protocol (MCP), enabling distributed MCP architectures over message queues.
 
+**Compliance:** Fully compliant with MCP specification 2025-11-25. All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata in AMQP message properties.
+
 ## Key Features
 
 - **Enterprise-Grade Reliability**: Advanced error recovery, connection resilience, and message persistence

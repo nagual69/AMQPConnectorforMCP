@@ -1,5 +1,9 @@
 # Getting Started with AMQP MCP Transport
 
+## Compliance
+
+This transport is **fully compliant with MCP specification 2025-11-25**. All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata (correlationId, replyTo, contentType) in AMQP message properties. No custom envelope wrapping is used.
+
 ## Installation
 
 ### npm

@@ -27,9 +27,11 @@
 
 An AMQP-based transport implementation for the Model Context Protocol, enabling distributed MCP communication over AMQP message queues.
 
+**✅ Fully compliant with MCP specification 2025-11-25** — All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata in AMQP message properties.
+
 ## Project Status
 
-✅ AMQP MCP Transport with bidirectional routing compatible with the MCP Open Discovery server.
+✅ Production-ready AMQP MCP Transport with bidirectional routing, fully tested and spec-compliant.
 
 ## Use with MCP TypeScript SDK examples
 
@@ -146,8 +148,10 @@ The AMQP transport implements the MCP `Transport` interface and uses:
 
 Routing & replies
 
-- Requests/notifications are published to the topic exchange `${exchangeName}.mcp.routing` using routing keys like `mcp.request.{category}` (e.g., `mcp.request.network`).
-- The server replies directly to the client’s exclusive reply queue using `replyTo` and preserves the original `correlationId` for JSON‑RPC responses—responses are not sent via the routing exchange.
+- Requests/notifications are published to the topic exchange `${exchangeName}.mcp.routing` using routing keys like `mcp.request.{method}` (e.g., `mcp.request.tools.list`), where the method name has `/` replaced by `.`.
+- The server replies directly to the client's exclusive reply queue using `replyTo` and preserves the original `correlationId` for JSON‑RPC responses—responses are not sent via the routing exchange.
+- All messages include `contentType: 'application/json'` in AMQP properties for proper serialization.
+- For advanced routing (e.g., category-based routing), use the `routingKeyStrategy` configuration option.
 
 SDK lifecycle
 

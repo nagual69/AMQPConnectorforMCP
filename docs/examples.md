@@ -2,6 +2,8 @@
 
 Practical, up-to-date examples for using the AMQP transport with the MCP TypeScript SDK. These align with the bidirectional routing design using a topic exchange and the SDK-managed lifecycle.
 
+**Wire Format:** All examples use MCP-compliant raw JSON-RPC 2.0 messages on the wire, with transport metadata in AMQP message properties.
+
 ## Basic
 
 Environment
@@ -15,10 +17,9 @@ $env:AMQP_EXCHANGE = "mcp.examples"   # default used by the examples
 Routing overview
 
 - Requests/notifications publish to a topic exchange named `${exchangeName}.mcp.routing`.
-- Typical routing keys:
-  - `mcp.request.{category}` (e.g., `mcp.request.network`)
-  - `mcp.tools.#`, `mcp.resources.#`, `mcp.prompts.#` (server-side bindings)
+- Default routing key format: `mcp.{messageType}.{method}` (e.g., `mcp.request.tools.list`)
 - Responses are sent directly to the client's exclusive reply queue via `replyTo`, preserving the original `correlationId`.
+- All messages include `contentType: 'application/json'` in AMQP properties.
 
 ### Client (with MCP SDK)
 
@@ -28,7 +29,7 @@ import { AMQPClientTransport } from "amqp-mcp-transport";
 
 async function main() {
   const transport = new AMQPClientTransport({
-    amqpUrl: process.env.AMQP_URL || "amqp://mcp:discovery@localhost:5672",
+    amqpUrl: process.env.AMQP_URL || "amqp://guest:guest@localhost:5672",
     serverQueuePrefix: "mcp.example",
   exchangeName: process.env.AMQP_EXCHANGE || "mcp.examples",
     responseTimeout: 30000,
@@ -74,7 +75,7 @@ import {
 
 async function main() {
   const transport = new AMQPServerTransport({
-    amqpUrl: process.env.AMQP_URL || "amqp://mcp:discovery@localhost:5672",
+    amqpUrl: process.env.AMQP_URL || "amqp://guest:guest@localhost:5672",
     queuePrefix: "mcp.example",
   exchangeName: process.env.AMQP_EXCHANGE || "mcp.examples",
     prefetchCount: 1,

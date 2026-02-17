@@ -1,6 +1,6 @@
 /**
  * AMQP Transport Types for Model Context Protocol
- * 
+ *
  * This module provides type definitions for AMQP-based MCP transports,
  * compatible with the official MCP SDK transport interface.
  */
@@ -16,6 +16,14 @@ export type {
     RequestId
 };
 export type { Transport, TransportSendOptions };
+
+/**
+ * Callback to derive an AMQP routing key from an MCP method name and
+ * message type.  The default strategy uses `mcp.{messageType}.{method}`
+ * (with `/` replaced by `.`).  Projects that need category-based routing
+ * (e.g. `mcp.request.nmap.nmap_scan`) can supply their own function.
+ */
+export type RoutingKeyStrategy = (method: string, messageType: 'request' | 'notification') => string;
 
 /**
  * Base configuration options for AMQP transport
@@ -41,6 +49,15 @@ export interface AMQPTransportOptions {
 
     /** Queue time-to-live in milliseconds */
     queueTTL?: number;
+
+    /**
+     * Optional callback to derive AMQP routing keys from method names.
+     * Defaults to `mcp.{messageType}.{method}` (with `/` → `.`).
+     */
+    routingKeyStrategy?: RoutingKeyStrategy;
+
+    /** Maximum incoming message size in bytes (default 1 048 576 = 1 MB) */
+    maxMessageSize?: number;
 }
 
 /**
@@ -60,26 +77,6 @@ export interface AMQPClientTransportOptions extends AMQPTransportOptions {
 
     /** Timeout for responses in milliseconds */
     responseTimeout?: number;
-}
-
-/**
- * Internal message envelope for AMQP transport
- */
-export interface AMQPMessage {
-    /** JSON-RPC message payload */
-    message: JSONRPCMessage;
-
-    /** Message timestamp */
-    timestamp: number;
-
-    /** Message type for routing */
-    type: 'request' | 'response' | 'notification';
-
-    /** Optional correlation ID for request/response pairing */
-    correlationId?: string;
-
-    /** Optional reply-to queue name */
-    replyTo?: string;
 }
 
 /**

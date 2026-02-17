@@ -133,25 +133,30 @@ export class AMQPClientTransport implements Transport {
      * The raw JSON-RPC message is sent as the AMQP body.  Transport metadata
      * (correlationId, replyTo) is carried in AMQP message properties.
      */
-    async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+    send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
         if (!this.connectionState.connected || !this.channel) {
-            throw new Error('Transport not connected');
+            return Promise.reject(new Error('Transport not connected'));
         }
 
-        const messageType = detectMessageType(message);
-        const exchangeName = `${this.options.exchangeName}.mcp.routing`;
-        const messageBuffer = Buffer.from(JSON.stringify(message));
+        try {
+            const messageType = detectMessageType(message);
+            const exchangeName = `${this.options.exchangeName}.mcp.routing`;
+            const messageBuffer = Buffer.from(JSON.stringify(message));
 
-        switch (messageType) {
-            case 'request':
-                this.sendRequest(message, messageBuffer, exchangeName, options);
-                break;
-            case 'response':
-                this.sendResponse(messageBuffer, exchangeName);
-                break;
-            case 'notification':
-                this.sendNotification(message, messageBuffer, exchangeName);
-                break;
+            switch (messageType) {
+                case 'request':
+                    this.sendRequest(message, messageBuffer, exchangeName, options);
+                    break;
+                case 'response':
+                    this.sendResponse(messageBuffer, exchangeName);
+                    break;
+                case 'notification':
+                    this.sendNotification(message, messageBuffer, exchangeName);
+                    break;
+            }
+            return Promise.resolve();
+        } catch (error) {
+            return Promise.reject(error);
         }
     }
 
@@ -341,8 +346,8 @@ export class AMQPClientTransport implements Transport {
                 return;
             }
 
-            const response = validateJSONRPC(JSON.parse(msg.content.toString()));
-            const rawCorrelationId = msg.properties?.correlationId;
+            const response = validateJSONRPC(JSON.parse(msg.content.toString()) as unknown);
+            const rawCorrelationId: unknown = msg.properties?.correlationId;
             const correlationId = typeof rawCorrelationId === 'string' ? rawCorrelationId : undefined;
 
             if (correlationId && this.pendingRequests.has(correlationId)) {

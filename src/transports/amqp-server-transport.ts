@@ -134,23 +134,28 @@ export class AMQPServerTransport implements Transport {
      * `message.id`) to look up the stored routing info so the response is
      * delivered to the correct client reply queue.
      */
-    async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+    send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
         if (!this.connectionState.connected || !this.channel) {
-            throw new Error('Transport not connected');
+            return Promise.reject(new Error('Transport not connected'));
         }
 
-        const messageType = detectMessageType(message);
+        try {
+            const messageType = detectMessageType(message);
 
-        switch (messageType) {
-            case 'response':
-                this.handleResponseMessage(message, options);
-                break;
-            case 'request':
-                this.handleRequestMessage(message);
-                break;
-            case 'notification':
-                this.handleNotificationMessage(message);
-                break;
+            switch (messageType) {
+                case 'response':
+                    this.handleResponseMessage(message, options);
+                    break;
+                case 'request':
+                    this.handleRequestMessage(message);
+                    break;
+                case 'notification':
+                    this.handleNotificationMessage(message);
+                    break;
+            }
+            return Promise.resolve();
+        } catch (error) {
+            return Promise.reject(error);
         }
     }
 

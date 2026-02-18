@@ -107,9 +107,9 @@ async function main() {
         const a = args as Record<string, unknown> | undefined;
         switch (name) {
             case "summarize":
-                return { messages: [{ role: "user", content: { type: "text", text: `Summarize: ${a?.text ?? ''}` } }] };
+                return { messages: [{ role: "user", content: { type: "text", text: `Summarize: ${typeof a?.text === 'string' ? a.text : ''}` } }] };
             case "translate":
-                return { messages: [{ role: "user", content: { type: "text", text: `Translate to ${a?.target_language ?? 'English'}: ${a?.text ?? ''}` } }] };
+                return { messages: [{ role: "user", content: { type: "text", text: `Translate to ${typeof a?.target_language === 'string' ? a.target_language : 'English'}: ${typeof a?.text === 'string' ? a.text : ''}` } }] };
             default:
                 throw new Error(`Unknown prompt: ${name}`);
         }

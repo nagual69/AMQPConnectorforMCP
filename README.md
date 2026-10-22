@@ -27,11 +27,23 @@
 
 An AMQP-based transport implementation for the Model Context Protocol, enabling distributed MCP communication over AMQP message queues.
 
-**✅ Fully compliant with MCP specification 2025-11-25** — All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata in AMQP message properties.
+**Scope:** the 2025-era MCP protocol (`@modelcontextprotocol/sdk` v1). All messages are raw JSON-RPC 2.0 on the wire, with transport metadata in AMQP message properties. The normative wire behaviour is [docs/TRANSPORT_CONTRACT.md](./docs/TRANSPORT_CONTRACT.md).
 
 ## Project Status
 
-✅ Production-ready AMQP MCP Transport with bidirectional routing, fully tested and spec-compliant.
+- **1.2.0** is the canonical home of the AMQP transport that Open Discovery 3.0 runs in production: the cross-client response-leak fix, separate client/server notification namespaces, broker consumer-cancel handling, and the `AmqpServerRuntime` recovery loop now live here.
+- **Not yet compliant with MCP 2026-07-28.** The stateless protocol needs a re-architecture, planned in [docs/REARCHITECTURE_PLAN_2026-07-28.md](./docs/REARCHITECTURE_PLAN_2026-07-28.md).
+- Servers do not initiate requests over this transport, so sampling and elicitation are unavailable (contract §5).
+
+## Installation
+
+The package is not on npm yet. Install it straight from GitHub; the `prepare` script builds it on install:
+
+```bash
+npm install github:nagual69/AMQPConnectorforMCP#v1.2.0 amqplib @modelcontextprotocol/sdk
+```
+
+`@modelcontextprotocol/sdk` (>=1.17.1 <2) is a peer dependency, so the transport shares your application's SDK instance. The package is ESM; CommonJS consumers on Node ≥ 22.12 can `require()` it directly.
 
 ## Use with MCP TypeScript SDK examples
 
@@ -141,17 +153,18 @@ This project provides an AMQP transport implementation for MCP, allowing MCP cli
 
 The AMQP transport implements the MCP `Transport` interface and uses:
 
-- **Bidirectional Topic Exchange**: `${exchangeName}.mcp.routing` for requests, events, and notifications
-- **Session/Stream IDs**: Session-aware routing with correlation storage for responses
-- **Correlation IDs**: To match responses with requests
+- **One topic exchange**: `${exchangeName}.mcp.routing`, with three namespaces — `mcp.request.*` and `mcp.client-notification.*` (client → server) and `mcp.server-notification.*` (server → clients)
+- **Per-request correlation**: every request carries `replyTo` + `correlationId`; the server rewrites each request id to a unique internal id so concurrent clients reusing ids never receive each other's responses
+- **One server per exchange**: the server endpoint is an exclusive queue, so a second server on the same exchange would answer every request too (contract §1)
 - **JSON Serialization**: For message encoding
 
 Routing & replies
 
-- Requests/notifications are published to the topic exchange `${exchangeName}.mcp.routing` using routing keys like `mcp.request.{method}` (e.g., `mcp.request.tools.list`), where the method name has `/` replaced by `.`.
+- Requests publish to `${exchangeName}.mcp.routing` as `mcp.request.{method}` (e.g., `mcp.request.tools.list`), client notifications as `mcp.client-notification.{method}`, server notifications as `mcp.server-notification.{method}`; `/` in method names becomes `.`.
 - The server replies directly to the client's exclusive reply queue using `replyTo` and preserves the original `correlationId` for JSON‑RPC responses—responses are not sent via the routing exchange.
 - All messages include `contentType: 'application/json'` in AMQP properties for proper serialization.
-- For advanced routing (e.g., category-based routing), use the `routingKeyStrategy` configuration option.
+- For advanced routing (e.g., category-based routing), use the `routingKeyStrategy` configuration option. It receives the message and its routing type, and must keep each message inside its namespace.
+- For servers, `AmqpServerRuntime` owns the transport/server pair and re-attaches a fresh server from your factory after the broker comes back.
 
 SDK lifecycle
 

@@ -76,14 +76,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build project
-        run: npm run build
+      - name: Build examples
+        run: npm run build:examples
 
       - name: Verify examples build
         run: |
-          # Check that example files exist in dist
-          test -f dist/examples/client.js
-          test -f dist/examples/server.js
+          test -f dist-examples/examples/client.js
+          test -f dist-examples/examples/server.js
 
   type-check:
     runs-on: ubuntu-latest

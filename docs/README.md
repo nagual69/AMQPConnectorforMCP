@@ -7,6 +7,7 @@
 - [Configuration](./configuration.md)
 - [Examples](./examples.md)
 - [Troubleshooting](./troubleshooting.md)
+- [Transport contract](./TRANSPORT_CONTRACT.md) (normative wire behaviour)
 - [Re-architecture plan for MCP 2026-07-28](./REARCHITECTURE_PLAN_2026-07-28.md) (proposed)
 - Migration: see `src/transports/deprecated/MIGRATION_SUMMARY.md` for legacy JS to TS notes
 
@@ -14,12 +15,12 @@
 
 The AMQP MCP Transport provides enterprise-grade AMQP-based transport implementations for the Model Context Protocol (MCP), enabling distributed MCP architectures over message queues.
 
-**Compliance:** Fully compliant with MCP specification 2025-11-25. All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata in AMQP message properties.
+**Scope:** the 2025-era MCP protocol (SDK v1). All messages are raw JSON-RPC 2.0 on the wire, with transport metadata in AMQP message properties. The normative wire behaviour is [TRANSPORT_CONTRACT.md](./TRANSPORT_CONTRACT.md); the move to the stateless MCP 2026-07-28 protocol is planned in [REARCHITECTURE_PLAN_2026-07-28.md](./REARCHITECTURE_PLAN_2026-07-28.md).
 
 ## Key Features
 
 - **Enterprise-Grade Reliability**: Advanced error recovery, connection resilience, and message persistence
-- **Bidirectional Communication**: Full pub/sub support for distributed messaging patterns
+- **Separated notification namespaces**: client and server notifications never loop back to their sender
 - **Performance Monitoring**: Request tracking, correlation handling, and response time measurement
 - **Intelligent Routing**: Tool category-based routing and session management
 - **Type Safety**: Full TypeScript support with strict type checking

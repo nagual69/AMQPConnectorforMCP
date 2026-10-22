@@ -192,3 +192,6 @@ example-mcp-od-server-amqp/
 # Local developer overrides (do not track)
 .eslintrc.json
 tsconfig.eslint.json
+
+# Example build output
+dist-examples/

@@ -44,6 +44,7 @@ re-architecture should:
   results.
 - Open Discovery fixed this in its fork (`7ba522f`), but the fix never reached this package.
 - This is a **P0 hotfix (Phase 0)**, independent of the spec work.
+- **Status:** fixed in `amqp-mcp-transport@1.2.0`, which ports Open Discovery's whole AMQP transport into this package (see CHANGELOG).
 
 **The main point of disagreement with the Grok analysis:** it is right about the direction but
 wrong about where the work is.
@@ -126,7 +127,9 @@ Two inconsistencies in the spec itself affect us:
 | `AMQPConnectorforMCPEdge` | `@nagual69/amqp-mcp-edge` 0.1.0. Versioned job / ack / progress / result envelopes, a DLX-backed job consumer, an event publisher with drain-wait backpressure. Explicitly *not* an MCP transport. | Orthogonal to the core spec. It is the natural execution backend for the Tasks extension (§5.10). |
 
 Two forks that disagree on a security-relevant invariant is a worse risk than any single defect
-below. Consolidating them is part of this plan (Phase 3).
+below. Consolidating them is part of this plan.
+
+**Consolidation update (1.2.0).** Open Discovery's transport and recovery runtime now live in this package, and the package is installable from GitHub. The remaining step is for Open Discovery to consume the package instead of its embedded copy (Phase 0b). After that, the 2026-07-28 rework happens once, here, and Open Discovery picks it up with a dependency bump. Porting changes back and forth between the repos is no longer needed.
 
 ### 3.2 Defect inventory: this package (v1.0.0)
 
@@ -656,11 +659,12 @@ Effort is relative sizing (S < M < L) for a single maintainer. It is not a calen
 
 | Phase | Content | Exit criteria | Size |
 |---|---|---|---|
-| **0 — Hotfix v1 (now)** | Port OD's id rewrite (D1) and notification namespace split (D2) into `amqp-mcp-transport@1.0.1`. Remove the false compliance and "bidirectional" claims. Fix the SDK floor and author. Deprecation notice pointing at v2. | P1 (single-instance form) passes on v1; README states the 2025-era scope honestly | S |
+| **0 — Consolidate into this package** | **Done in 1.2.0.** OD's transport, recovery runtime and contract pins are ported here (D1, D2, D8 fixed). Packaging is fixed so `npm install github:nagual69/AMQPConnectorforMCP#v1.2.0` builds. The false compliance claims are removed. | P1 (single-instance form) passes; README states the 2025-era scope honestly | S |
+| **0b — OD consumes the package** | OD replaces `src/transports/amqp/` with a git dependency on this package and keeps `startAmqpTransport` as a thin wrapper. It re-points its AMQP suites at the package. `test_amqp_extension_contract.js` reads the transport source and OD's contract doc by path, so those pins move to this repo's `contract.test.ts` (already ported). | OD's AMQP suites green against the package; no embedded fork remains | S–M |
 | **0b — OASIS review (deadline 18 Nov 2026 23:59 UTC)** | Submit the §11 comments through the OASIS comment facility (not GitHub). | Comments filed | S |
 | **1 — Binding document + ADR** | `docs/BINDING.md` (normative; 0-9.1 profile plus mapping to OASIS 1.0). Superseding ADR drafted in OD for §6.1 / §6.4 / §6.6. | Maintainer ratifies the ADR (decision D-1) | M |
 | **2 — v2 core on 0-9.1** | `binding-core`; `AmqpClientTransport`; `serveAmqp` with engine B; `AmqpServerEventBus`; quorum topology; delivery policy; legacy era path. **Spike gates for engine B:** R1 per-request factory p99 with OD's full plugin set ≤ budget agreed in D-3; R2 `Mcp-Param-*` synthesis correct across dynamic tool changes; R3 SSE relay preserves order and terminality. Upstream SDK issue for a transport-neutral per-request entry. | P1–P12 green on RabbitMQ 4.x, two-instance CI | L |
-| **3 — Consolidate OD** | OD migrates to SDK v2 (a prerequisite it needs for HTTP anyway). It replaces `src/transports/amqp/` with the package, ports its pins to P1–P12, and runs the legacy era for existing clients, including the VS Code AMQP bridge. OD runs as a single instance (D-8). | OD's AMQP suites green against the package; no embedded fork remains | M |
+| **3 — OD adopts v2** | OD migrates to SDK v2 (a prerequisite it needs for HTTP anyway). It bumps the package dependency to v2 and runs the legacy era for existing clients, including the VS Code AMQP bridge. OD runs as a single instance (D-8). | OD green on v2 of the package | M |
 | **4 — Tasks** | Optional `tasks` module; task store adapter; two new Edge envelope types; listen-fed `notifications/tasks`. | Long-running OD tool (e.g. a full nmap sweep) runs as a task across an instance restart | M |
 | **5 — AMQP 1.0 profile** | `rhea` profile conforming to OASIS CSD01 (or its successor), including dynamic temporary reply nodes; interop test against an independent 1.0 implementation if one exists by then. | OASIS §11 client and server conformance clauses satisfied | M |
 | **6 — Engine C** | Native serving entry replaces the HTTP bridge, once the SDK exposes the needed seam or the bridge's coupling cost is proven. | Engine swap with P1–P12 unchanged | M–L |

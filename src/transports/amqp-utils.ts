@@ -6,8 +6,8 @@
  * the transport library can be adopted by any MCP project.
  */
 
-import type { JSONRPCMessage } from "./types.js";
-import type { RoutingKeyStrategy } from "./types.js";
+import { randomUUID } from 'node:crypto';
+import type { JSONRPCMessage, RoutingKeyStrategy, RoutingMessageType, TransportLogger } from "./types.js";
 
 // ─── JSON-RPC type guards ───────────────────────────────────────────────────
 
@@ -71,6 +71,23 @@ export function validateJSONRPC(obj: unknown): JSONRPCMessage {
     return obj as JSONRPCMessage;
 }
 
+/**
+ * Return a shallow copy of an outbound message with `jsonrpc: "2.0"` set and
+ * any broker-injected `_rabbitMQ*` keys removed.
+ */
+export function sanitizeJsonRpcMessage(message: JSONRPCMessage): JSONRPCMessage {
+    const clean: Record<string, unknown> = { ...message };
+    if (!clean.jsonrpc) {
+        clean.jsonrpc = '2.0';
+    }
+    for (const key of Object.keys(clean)) {
+        if (key.startsWith('_rabbitMQ')) {
+            delete clean[key];
+        }
+    }
+    return clean as JSONRPCMessage;
+}
+
 // ─── Message parsing ────────────────────────────────────────────────────────
 
 export interface ParseResult {
@@ -95,12 +112,30 @@ export function parseMessage(content: Buffer | string): ParseResult {
 
 // ─── Routing keys ───────────────────────────────────────────────────────────
 
+/** Binding patterns for each routing namespace. */
+export const ROUTING_PATTERNS = {
+    request: 'mcp.request.#',
+    clientNotification: 'mcp.client-notification.#',
+    serverNotification: 'mcp.server-notification.#',
+} as const;
+
+/** Name of the topic exchange both sides publish to. */
+export function routingExchangeName(exchangeName: string): string {
+    return `${exchangeName}.mcp.routing`;
+}
+
+export function normalizeMethodForRouting(method: string): string {
+    return method.replace(/\//g, '.');
+}
+
 /**
- * Default routing key strategy: `mcp.{messageType}.{method}` with `/` → `.`
+ * Default routing key strategy: `mcp.{routingType}.{method}` with `/` → `.`
  */
-export function defaultRoutingKeyStrategy(method: string, messageType: 'request' | 'notification'): string {
-    const normalised = method.replace(/\//g, '.');
-    return `mcp.${messageType}.${normalised}`;
+export function defaultRoutingKeyStrategy(message: JSONRPCMessage, routingType: RoutingMessageType): string {
+    const method = ('method' in message && typeof message.method === 'string')
+        ? normalizeMethodForRouting(message.method)
+        : 'unknown';
+    return `mcp.${routingType}.${method}`;
 }
 
 /**
@@ -109,23 +144,47 @@ export function defaultRoutingKeyStrategy(method: string, messageType: 'request'
  */
 export function getRoutingKey(
     message: JSONRPCMessage,
-    messageType: 'request' | 'notification',
+    routingType: RoutingMessageType,
     strategy?: RoutingKeyStrategy
 ): string {
-    const method = ('method' in message && typeof message.method === 'string')
-        ? message.method
-        : 'unknown';
     const fn = strategy ?? defaultRoutingKeyStrategy;
-    return fn(method, messageType);
+    return fn(message, routingType);
 }
 
-// ─── Correlation IDs ────────────────────────────────────────────────────────
+// ─── Identifiers ────────────────────────────────────────────────────────────
+
+/**
+ * Generate an endpoint-instance id.  It names the server's exclusive queue
+ * and namespaces internal request ids; it never appears on the wire and is
+ * not an MCP session.
+ */
+export function generateSessionId(): string {
+    return randomUUID();
+}
 
 /**
  * Generate a unique correlation ID for request/response pairing.
  */
 export function generateCorrelationId(sessionId: string): string {
     return `${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+// ─── Logging ────────────────────────────────────────────────────────────────
+
+/**
+ * Default logger: warnings and errors go to stderr, debug/info are dropped.
+ */
+export function createDefaultLogger(scope: string): TransportLogger {
+    const write = (level: string, message: string, context?: unknown) => {
+        const suffix = context === undefined ? '' : ` ${JSON.stringify(context)}`;
+        process.stderr.write(`[${new Date().toISOString()}] [${level}] [${scope}] ${message}${suffix}\n`);
+    };
+    return {
+        debug: () => undefined,
+        info: () => undefined,
+        warn: (message, context) => write('WARN', message, context),
+        error: (message, context) => write('ERROR', message, context),
+    };
 }
 
 // ─── Configuration validation ───────────────────────────────────────────────
@@ -138,9 +197,9 @@ export function validateAmqpConfig(config: {
     amqpUrl: string;
     queuePrefix: string;
     exchangeName: string;
-    reconnectDelay?: number;
-    maxReconnectAttempts?: number;
-    prefetchCount?: number;
+    reconnectDelay?: number | undefined;
+    maxReconnectAttempts?: number | undefined;
+    prefetchCount?: number | undefined;
 }): string[] {
     const errors: string[] = [];
 

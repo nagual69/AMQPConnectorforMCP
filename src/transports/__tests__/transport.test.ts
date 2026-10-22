@@ -165,10 +165,11 @@ describe('Utility Functions', () => {
     });
 
     describe('getRoutingKey / defaultRoutingKeyStrategy', () => {
-        it('converts / to . in method names', () => expect(defaultRoutingKeyStrategy('tools/list', 'request')).toBe('mcp.request.tools.list'));
-        it('creates notification keys', () => expect(defaultRoutingKeyStrategy('cancelled', 'notification')).toBe('mcp.notification.cancelled'));
+        it('converts / to . in method names', () => expect(defaultRoutingKeyStrategy({ jsonrpc: '2.0', id: 1, method: 'tools/list' } as JSONRPCMessage, 'request')).toBe('mcp.request.tools.list'));
+        it('creates client notification keys', () => expect(defaultRoutingKeyStrategy({ jsonrpc: '2.0', method: 'notifications/cancelled' } as JSONRPCMessage, 'client-notification')).toBe('mcp.client-notification.notifications.cancelled'));
+        it('creates server notification keys', () => expect(defaultRoutingKeyStrategy({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' } as JSONRPCMessage, 'server-notification')).toBe('mcp.server-notification.notifications.tools.list_changed'));
         it('uses custom strategy', () => {
-            const custom = (m: string, t: string) => `x.${t}.${m}`;
+            const custom = (m: JSONRPCMessage, t: string) => `x.${t}.${'method' in m ? m.method : ''}`;
             expect(getRoutingKey({ jsonrpc: '2.0', id: 1, method: 'foo' } as JSONRPCMessage, 'request', custom)).toBe('x.request.foo');
         });
         it('falls back to default', () => expect(getRoutingKey({ jsonrpc: '2.0', id: 1, method: 'bar' } as JSONRPCMessage, 'request')).toBe('mcp.request.bar'));
@@ -317,7 +318,7 @@ describe('AMQPClientTransport', () => {
             t._connectFn = makeConnectFn(conn);
             await startTransport(t);
             await t.send({ jsonrpc: '2.0', method: 'notifications/cancelled' } as any);
-            expect(ch._published[0]!.routingKey).toBe('mcp.notification.notifications.cancelled');
+            expect(ch._published[0]!.routingKey).toBe('mcp.client-notification.notifications.cancelled');
         });
 
         it('incoming response invokes onmessage', async () => {
@@ -396,13 +397,12 @@ describe('AMQPServerTransport', () => {
             await t.start();
         }
 
-        it('start() creates single queue bound to mcp.request.# and mcp.notification.# (M2)', async () => {
+        it('start() creates single queue bound to mcp.request.# and mcp.client-notification.# (M2)', async () => {
             const t = new AMQPServerTransport(opts);
             t._connectFn = makeConnectFn(conn);
             await startTransport(t);
             expect(ch._asserted.queues.length).toBe(1);
-            expect(ch._bindings.map(b => b.pattern)).toContain('mcp.request.#');
-            expect(ch._bindings.map(b => b.pattern)).toContain('mcp.notification.#');
+            expect(ch._bindings.map(b => b.pattern).sort()).toEqual(['mcp.client-notification.#', 'mcp.request.#']);
         });
 
         it('close() calls onclose', async () => {
@@ -512,20 +512,20 @@ describe('AMQPServerTransport', () => {
             for (const sq of ch._sentToQueue) expect(sq.content.toString()).not.toContain(String(id1));
         });
 
-        it('send(notification) uses mcp.notification.* key (M8)', async () => {
+        it('send(notification) uses mcp.server-notification.* key (M8)', async () => {
             const t = new AMQPServerTransport(opts);
             t._connectFn = makeConnectFn(conn);
             await startTransport(t);
             await t.send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' } as any);
-            expect(ch._published[0]!.routingKey).toBe('mcp.notification.notifications.tools.list_changed');
+            expect(ch._published[0]!.routingKey).toBe('mcp.server-notification.notifications.tools.list_changed');
         });
 
         it('custom routingKeyStrategy (C7)', async () => {
-            const t = new AMQPServerTransport({ ...opts, routingKeyStrategy: (m, tt) => `x.${tt}.${m}` });
+            const t = new AMQPServerTransport({ ...opts, routingKeyStrategy: (m, tt) => `x.${tt}.${'method' in m ? m.method : ''}` });
             t._connectFn = makeConnectFn(conn);
             await startTransport(t);
             await t.send({ jsonrpc: '2.0', method: 'foo' } as any);
-            expect(ch._published[0]!.routingKey).toBe('x.notification.foo');
+            expect(ch._published[0]!.routingKey).toBe('x.server-notification.foo');
         });
     });
 });

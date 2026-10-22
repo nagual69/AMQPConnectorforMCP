@@ -2,9 +2,9 @@
 
 ## Overview
 
-The AMQP MCP Transport is fully compliant with MCP specification 2025-11-25. It sends raw JSON-RPC 2.0 messages on the wire with transport metadata in AMQP message properties.
+The AMQP MCP Transport targets the 2025-era MCP protocol. It sends raw JSON-RPC 2.0 messages on the wire with transport metadata in AMQP message properties; [TRANSPORT_CONTRACT.md](./TRANSPORT_CONTRACT.md) is normative.
 
-The transport supports bidirectional routing through topic exchanges. Configure the exchange and queue prefixes rather than hardcoding queue names.
+The transport routes through one topic exchange with separate request, client-notification and server-notification namespaces. Configure the exchange and queue prefixes rather than hardcoding queue names.
 
 ## Basic Configuration
 
@@ -43,7 +43,8 @@ const transport = new AMQPServerTransport({
 - queueTTL: number (ms) — applied to ephemeral queues
 - responseTimeout (client only): number (ms, default 30000)
 - maxMessageSize: number (bytes, default 1048576 = 1 MB) — rejects messages exceeding this size
-- routingKeyStrategy: (method: string, messageType: 'request' | 'notification') => string — custom routing key derivation (see Routing section)
+- routingKeyStrategy: (message: JSONRPCMessage, routingType: 'request' | 'client-notification' | 'server-notification') => string — custom routing key derivation (see Routing section)
+- logger: TransportLogger — structured logger for transport diagnostics (default: warnings/errors to stderr)
 
 ## Environment-Based Configuration
 
@@ -68,12 +69,14 @@ $env:AMQP_EXCHANGE = "mcp.examples"
 ## Routing
 
 - The transport uses a topic exchange named `${exchangeName}.mcp.routing` for all requests and notifications.
-- Default routing key format: `mcp.{messageType}.{method}` where:
-  - `messageType` is either "request" or "notification"
+- Default routing key format: `mcp.{routingType}.{method}` where:
+  - `routingType` is `request` or `client-notification` (client → server) or `server-notification` (server → clients)
   - `method` is the JSON-RPC method name with `/` replaced by `.` (e.g., "tools/list" → "tools.list")
 - Example routing keys:
   - `mcp.request.tools.list` for a tools/list request
-  - `mcp.notification.tools.list_changed` for a notification
+  - `mcp.client-notification.notifications.cancelled` for a client notification
+  - `mcp.server-notification.notifications.tools.list_changed` for a server notification
+- The server binds exactly `mcp.request.#` and `mcp.client-notification.#`; clients bind `mcp.server-notification.#`. Neither side receives its own notifications.
 - Responses are NOT published to the routing exchange. Instead, the server uses the original `replyTo` queue and `correlationId` to send JSON-RPC responses directly to the client's exclusive queue.
 - All messages include `contentType: 'application/json'` in AMQP properties.
 
@@ -89,14 +92,15 @@ const transport = new AMQPClientTransport({
   amqpUrl: "amqp://localhost:5672",
   exchangeName: "mcp.notifications",
   serverQueuePrefix: "mcp.server",
-  routingKeyStrategy: (method, messageType) => {
-    // Extract category from method name
+  routingKeyStrategy: (message, routingType) => {
+    const method = "method" in message ? message.method : "unknown";
+    // Extract category from method name (keep the mcp.{routingType}. prefix so bindings still match)
     let category = "general";
     if (method.startsWith("nmap_")) category = "nmap";
     else if (method.startsWith("snmp_")) category = "snmp";
     else if (method.includes("/")) category = method.split("/")[0];
     
-    return `mcp.${messageType}.${category}.${method.replace(/\//g, ".")}`;
+    return `mcp.${routingType}.${category}.${method.replace(/\//g, ".")}`;
   },
 });
 ```

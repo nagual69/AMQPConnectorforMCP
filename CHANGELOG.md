@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-22
+
+Consolidates the AMQP transport that Open Discovery 3.0 runs in production into this package, which is now its canonical home. The normative wire behaviour is [docs/TRANSPORT_CONTRACT.md](./docs/TRANSPORT_CONTRACT.md).
+
+### Security
+- **Cross-client response leak fix** (first shipped in 1.1.1, below). The server keyed response routing by the client-chosen JSON-RPC id, so two concurrent clients that both sent `id: 1` could receive each other's responses. Request ids are now rewritten to a unique internal id before the SDK sees them, and the client's id is restored on the way out (ported from Open Discovery `7ba522f`).
+- Clients no longer receive other clients' notifications. They bind only the server-notification namespace.
+
+### Changed (wire)
+- Notifications are split into `mcp.client-notification.*` (consumed by the server) and `mcp.server-notification.*` (consumed by clients), replacing the shared `mcp.notification.*`. Servers no longer consume their own notifications. **A 1.0/1.1 client and a 1.2 server still exchange requests and responses, but not notifications: upgrade both together.** Open Discovery 3.0 already uses the 1.2 wire format.
+- The server transport rejects outbound requests. Previously they looped back into its own queue. The client transport rejects outbound responses. Previously they were published to an unbound routing key and dropped.
+
+### Changed (API)
+- `routingKeyStrategy` is now `(message, routingType) => string`, with `routingType` one of `request`, `client-notification` or `server-notification`. It was `(method, messageType)`.
+- Default server `messageTTL` / `queueTTL` are now 1 h / 2 h, matching Open Discovery. The server no longer sets a default `prefetchCount`.
+- `@modelcontextprotocol/sdk` moved to `peerDependencies` (`>=1.17.1 <2`).
+
+### Added
+- `AmqpServerRuntime` (alias `NativeAmqpRuntimeAdapter`). It owns the transport/server pair and recovers after the transport closes for good, attaching a fresh server from a factory each time with exponential backoff. It reports recovery state via `getStatus()`.
+- A broker consumer cancel (`basic.cancel`) is treated as a connection failure on both transports, instead of leaving them silently "connected".
+- Reconnect tears down the old connection first, at most one reconnect is scheduled at a time, and `onclose` fires exactly once.
+- `ontransportclosed`, `getStatus()` and a `logger` option on the server transport. `AmqpServerTransport` / `AmqpClientTransport` are exported as aliases.
+- Contract tests (`contract.test.ts`), ported from Open Discovery, and an end-to-end test through the real MCP SDK with two concurrent clients reusing request ids (`sdk-e2e.test.ts`).
+- `docs/TRANSPORT_CONTRACT.md` and `docs/REARCHITECTURE_PLAN_2026-07-28.md`.
+
+### Fixed (packaging)
+- The build now emits `dist/index.js`, which `main` pointed at but which previously did not exist. The package also has an `exports` map, and a `prepare` script so `npm install github:nagual69/AMQPConnectorforMCP#<ref>` builds on install.
+- Examples build separately to `dist-examples/` (`npm run build:examples`).
+- `npm run lint` works again: the ESLint config extended a non-existent config name.
+- Removed the "fully compliant with 2025-11-25" and "bidirectional" claims. Servers cannot initiate requests over this transport.
+
 ## [1.1.1] - 2026-10-22
 
 ### Security

@@ -2,14 +2,16 @@
 
 ## Compliance
 
-This transport is **fully compliant with MCP specification 2025-11-25**. All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata (correlationId, replyTo, contentType) in AMQP message properties. No custom envelope wrapping is used.
+This transport targets the 2025-era MCP protocol (SDK v1). All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata (correlationId, replyTo, contentType) in AMQP message properties. No custom envelope wrapping is used. See [TRANSPORT_CONTRACT.md](./TRANSPORT_CONTRACT.md) for the normative wire behaviour.
 
 ## Installation
 
 ### npm
 
+The package is not published to npm yet; install from GitHub (the `prepare` script builds it):
+
 ```bash
-npm install amqp-mcp-transport @modelcontextprotocol/sdk amqplib
+npm install github:nagual69/AMQPConnectorforMCP#v1.2.0 @modelcontextprotocol/sdk amqplib
 ```
 
 ### yarn

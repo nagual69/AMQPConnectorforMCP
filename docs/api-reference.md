@@ -1,6 +1,6 @@
 # API Reference
 
-**Wire Format:** This transport is fully compliant with MCP specification 2025-11-25. All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata (correlationId, replyTo, contentType) in AMQP message properties. No custom envelope wrapping is used.
+**Wire Format:** This transport targets the 2025-era MCP protocol; [TRANSPORT_CONTRACT.md](./TRANSPORT_CONTRACT.md) is normative. All messages are sent as raw JSON-RPC 2.0 on the wire, with transport metadata (correlationId, replyTo, contentType) in AMQP message properties. No custom envelope wrapping is used.
 
 ## Table of Contents
 
@@ -12,7 +12,7 @@
 
 ## AMQPClientTransport
 
-AMQP client transport for MCP with enterprise-grade bidirectional routing. Use it with the MCP SDK client: the SDK will call start() internally when you call client.connect(transport).
+AMQP client transport for MCP. Use it with the MCP SDK client: the SDK will call start() internally when you call client.connect(transport).
 
 ### Constructor
 
@@ -36,7 +36,9 @@ Required options:
 
 - Requests: Published to the topic exchange `${exchangeName}.mcp.routing` with routing key `mcp.request.{method}` (with `/` replaced by `.`). Each request includes correlationId and replyTo (the client's exclusive response queue) in AMQP message properties.
 - Responses: Received directly on the client's response queue as raw JSON-RPC 2.0 messages (no envelope), matched by correlationId.
-- Notifications: Published with routing key `mcp.notification.{method}` and consumed via `mcp.notification.#` binding pattern.
+- Client notifications: Published with routing key `mcp.client-notification.{method}`.
+- Server notifications: Consumed via the `mcp.server-notification.#` binding pattern.
+- Responses: Rejected — servers do not initiate requests over this transport.
 - Custom routing: Use the `routingKeyStrategy` option to implement custom routing key derivation (e.g., category-based routing).
 
 ### Callbacks
@@ -47,7 +49,7 @@ Required options:
 
 ## AMQPServerTransport
 
-AMQP server transport for MCP that supports session/stream-based bidirectional routing and response correlation.
+AMQP server transport for MCP with per-request response correlation.
 
 ### Constructor
 
@@ -63,18 +65,36 @@ Required options:
 
 ### Lifecycle
 
-- start(): Promise<void> — Idempotent. Initializes basic queue, and bidirectional pub/sub channels. The MCP SDK will call this when you server.connect(transport).
+- start(): Promise<void> — Idempotent. Declares the exclusive endpoint queue and its bindings. The MCP SDK will call this when you server.connect(transport).
 - close(): Promise<void> — Closes channels and connection.
 - setProtocolVersion(version: string): void — MCP SDK compatibility.
 
 ### Message flow
 
-- Incoming requests are consumed from a session-specific queue bound to `${exchangeName}.mcp.routing` using patterns like:
-  - `{sessionId}.*` for session-specific routing
-  - `mcp.request.#` for all request types
-- Routing info (correlationId, replyTo, timestamp) is stored per requestId to route responses. Stale entries are automatically cleaned up based on TTL.
+- Incoming requests and client notifications are consumed from one exclusive queue bound to `${exchangeName}.mcp.routing` with exactly `mcp.request.#` and `mcp.client-notification.#`.
+- Each request id is rewritten to a unique internal id before the SDK sees it; routing info (correlationId, replyTo, originalId, timestamp) is stored under that internal id and the client's original id is restored on the response. Stale entries are cleaned up based on TTL.
+- A broker consumer cancel is treated as a connection failure (reported via onerror, then reconnect).
+- Outbound requests are rejected (no server-initiated requests).
 - Responses are sent directly to the client replyTo queue with the original correlationId using sendToQueue, with `contentType: 'application/json'`.
-- Notifications are published to `${exchangeName}.mcp.routing` with routing key `mcp.notification.{method}`.
+- Notifications are published to `${exchangeName}.mcp.routing` with routing key `mcp.server-notification.{method}`.
+
+## AmqpServerRuntime
+
+Owns one `AMQPServerTransport` plus the server bound to it and keeps the pair alive across broker outages. Alias: `NativeAmqpRuntimeAdapter` (Open Discovery's name).
+
+```ts
+const runtime = new AmqpServerRuntime();
+const result = await runtime.start(
+  { create: async () => buildServer(), release: (server) => {} },
+  { enabled: true, url: "amqp://localhost:5672", exchange: "mcp.notifications", queuePrefix: "mcp.myapp" },
+);
+// result.started === false means the broker was down; recovery continues in the background.
+runtime.getStatus(); // { connected, recovery: { state: 'idle' | 'waiting' | 'attempting' | 'stopped' | 'disabled', ... } }
+await runtime.send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+await runtime.stop();
+```
+
+After the transport closes for good, the runtime asks the factory for a **new** server and attaches it to a new transport (the SDK refuses to rebind a server). Recovery uses `recoveryRetryInterval`, `recoveryBackoffMultiplier`, `recoveryMaxRetryInterval` and `recoveryMaxRetries` (-1 = unlimited); set `autoRecoveryEnabled: false` to disable it.
 
 ### Callbacks
 
@@ -93,7 +113,8 @@ export interface AMQPTransportOptions {
   prefetchCount?: number; // default 1 (server), 10 (client)
   messageTTL?: number; // ms
   queueTTL?: number; // ms
-  routingKeyStrategy?: (method: string, messageType: 'request' | 'notification') => string;
+  routingKeyStrategy?: (message: JSONRPCMessage, routingType: 'request' | 'client-notification' | 'server-notification') => string;
+  logger?: TransportLogger; // default: warnings/errors to stderr
   maxMessageSize?: number; // bytes, default 1048576 (1 MB)
 }
 

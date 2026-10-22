@@ -486,6 +486,32 @@ describe('AMQPServerTransport', () => {
             await expect(t.send({ jsonrpc: '2.0', id: 999, result: {} } as any, { relatedRequestId: 999 })).rejects.toThrow('No routing info');
         });
 
+        it('two concurrent clients using id 1 each get their own response at their own replyTo (leak guard)', async () => {
+            const t = new AMQPServerTransport(opts);
+            t._connectFn = makeConnectFn(conn);
+            const onmsg = jest.fn();
+            t.onmessage = onmsg;
+            await startTransport(t);
+            const q = ch._asserted.queues[0]!;
+            ch._deliver(q, Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })), { correlationId: 'c1', replyTo: 'q1' });
+            ch._deliver(q, Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })), { correlationId: 'c2', replyTo: 'q2' });
+            const id1 = onmsg.mock.calls[0]![0].id;
+            const id2 = onmsg.mock.calls[1]![0].id;
+            expect(id1).not.toBe(id2);
+
+            // Answer in reverse order: routing must follow the id, not arrival order.
+            await t.send({ jsonrpc: '2.0', id: id2, result: { ok: 2 } } as any, { relatedRequestId: id2 });
+            await t.send({ jsonrpc: '2.0', id: id1, result: { ok: 1 } } as any, { relatedRequestId: id1 });
+
+            const byQueue = new Map(ch._sentToQueue.map(sq => [sq.queue, sq]));
+            expect(byQueue.get('q1')!.options.correlationId).toBe('c1');
+            expect(byQueue.get('q2')!.options.correlationId).toBe('c2');
+            expect(JSON.parse(byQueue.get('q1')!.content.toString())).toMatchObject({ id: 1, result: { ok: 1 } });
+            expect(JSON.parse(byQueue.get('q2')!.content.toString())).toMatchObject({ id: 1, result: { ok: 2 } });
+            // The internal id never reaches the wire.
+            for (const sq of ch._sentToQueue) expect(sq.content.toString()).not.toContain(String(id1));
+        });
+
         it('send(notification) uses mcp.server-notification.* key (M8)', async () => {
             const t = new AMQPServerTransport(opts);
             t._connectFn = makeConnectFn(conn);

@@ -1,0 +1,41 @@
+name: Publish to npm
+
+# Manual only. Run it from the Actions tab against a release tag once the package name is settled
+# (docs/REARCHITECTURE_PLAN_2026-07-28.md, D-6). Requires the NPM_TOKEN repository secret.
+# Tagging never publishes to npm; see release.yml.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Must run against a version tag
+        run: |
+          case "${GITHUB_REF}" in
+            refs/tags/v*) ;;
+            *) echo "::error::run this workflow against a vX.Y.Z tag, not ${GITHUB_REF}"; exit 1 ;;
+          esac
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Publish
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

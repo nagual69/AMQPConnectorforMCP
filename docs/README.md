@@ -7,6 +7,7 @@
 - [Configuration](./configuration.md)
 - [Examples](./examples.md)
 - [Troubleshooting](./troubleshooting.md)
+- [Re-architecture plan for MCP 2026-07-28](./REARCHITECTURE_PLAN_2026-07-28.md) (proposed)
 - Migration: see `src/transports/deprecated/MIGRATION_SUMMARY.md` for legacy JS to TS notes
 
 ## Overview

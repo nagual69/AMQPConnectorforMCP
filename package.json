@@ -1,19 +1,20 @@
 {
   "name": "amqp-mcp-transport",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "description": "AMQP transport implementation for Model Context Protocol",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "build:examples": "tsc -p tsconfig.examples.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "clean": "rm -rf dist dist-examples",
     "test": "jest",
-    "example:server": "npm run build && node dist/examples/server.js",
-    "example:client": "npm run build && node dist/examples/client.js",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix"
+    "example:server": "npm run build:examples && node dist-examples/examples/server.js",
+    "example:client": "npm run build:examples && node dist-examples/examples/client.js",
+    "lint": "eslint -c eslintrc.json \"src/**/*.ts\"",
+    "lint:fix": "eslint -c eslintrc.json \"src/**/*.ts\" --fix"
   },
   "keywords": [
     "mcp",

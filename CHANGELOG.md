@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-10-22
+
+### Security
+- **Fixed a cross-client response leak in `AMQPServerTransport`.** Response routing was keyed by the client-chosen JSON-RPC `id`. Every client numbers its requests from the same start, so when two clients had a request with the same id in flight, the second overwrote the first's `{replyTo, correlationId}` and a response could reach the wrong client. Request ids are now rewritten to a server-minted internal id before the SDK sees them, and the client's own id is restored on the response. The wire format is unchanged. Ported from Open Discovery 3.0 (`7ba522f`).
+- Added a two-clients-same-id regression test, and an end-to-end test through the real MCP SDK with two concurrent clients (`sdk-e2e.test.ts`).
+
+### Fixed (build/CI)
+- `npm run build` now emits `dist/index.js` and `dist/index.d.ts`, which `main` and `types` point at. Before this, the build wrote them under `dist/src/`. Examples build separately to `dist-examples/` with `npm run build:examples`.
+- `npm run lint` runs again. The ESLint config extended a config name that does not exist.
+
 ## [1.1.0] - 2026-02-16
 
 ### Fixed - MCP Specification Compliance

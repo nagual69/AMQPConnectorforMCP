@@ -8,6 +8,10 @@
  *
  * Key design decisions aligned with MCP specification 2025-11-25:
  *  - Wire format is pure JSON-RPC 2.0 (no custom envelope)
+ *  - Response routing is keyed by a server-minted internal id, never by the
+ *    client-chosen JSON-RPC id: every client numbers its requests from the
+ *    same start, so raw ids collide across concurrent clients and a response
+ *    would reach the wrong client's reply queue
  *  - Incoming messages are validated against JSON-RPC 2.0 schema
  *  - TransportSendOptions.relatedRequestId is the primary lookup key
  *  - onclose fires on every connection termination path
@@ -37,11 +41,12 @@ interface AMQPConnection {
     close(): Promise<void>;
 }
 
-// Routing information stored per incoming request
+// Routing information stored per incoming request, keyed by internal id
 interface RoutingInfo {
     correlationId: string;
     replyTo: string;
     timestamp: number;     // for TTL-based cleanup
+    originalId: RequestId; // the client's own JSON-RPC id, restored on the way out
 }
 
 /**
@@ -60,8 +65,10 @@ export class AMQPServerTransport implements Transport {
     // Session management
     sessionId: string;
 
-    // Response correlation — keyed by RequestId
-    private routingInfoStore = new Map<string | number, RoutingInfo>();
+    // Response correlation — keyed by a globally unique INTERNAL id, not the
+    // client-chosen JSON-RPC id, which is only unique per client.
+    private routingInfoStore = new Map<RequestId, RoutingInfo>();
+    private internalIdSeq = 0;
     private routingCleanupTimer: ReturnType<typeof setInterval> | null = null;
 
     // Protocol version (MCP SDK requirement)
@@ -308,11 +315,17 @@ export class AMQPServerTransport implements Transport {
                     ? msg.properties.replyTo : undefined;
 
                 if (correlationId && replyTo) {
-                    this.routingInfoStore.set(jsonRpcMessage.id as RequestId, {
+                    // Rewrite the client-chosen id to a globally unique internal id BEFORE the SDK
+                    // sees the message, so two clients that both use id=1 cannot collide in the
+                    // routing store. handleResponseMessage rewrites it back to the client's id.
+                    const internalId = `amqp-${this.sessionId}-${++this.internalIdSeq}`;
+                    this.routingInfoStore.set(internalId, {
                         correlationId,
                         replyTo,
                         timestamp: Date.now(),
+                        originalId: jsonRpcMessage.id as RequestId,
                     });
+                    (jsonRpcMessage as { id: RequestId }).id = internalId;
                 }
             }
 
@@ -352,7 +365,9 @@ export class AMQPServerTransport implements Transport {
 
         if (!this.channel) throw new Error('AMQP channel not established');
 
-        const messageBuffer = Buffer.from(JSON.stringify(message));
+        // The client sees the id it sent, never the internal one.
+        const outboundMessage = { ...message, id: routingInfo.originalId } as JSONRPCMessage;
+        const messageBuffer = Buffer.from(JSON.stringify(outboundMessage));
         this.channel.sendToQueue(routingInfo.replyTo, messageBuffer, {
             correlationId: routingInfo.correlationId,
             contentType: 'application/json',

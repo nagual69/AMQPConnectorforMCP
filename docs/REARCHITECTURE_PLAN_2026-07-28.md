@@ -696,33 +696,58 @@ Sequencing rationale:
 
 ## 11. Proposed OASIS CSD01 comments
 
-These come from building against both CSD01 drafts. The deadline is 18 Nov 2026 23:59 UTC, through
-the OASIS comment facility only.
+These come from building against both CSD01 drafts. They were re-checked against the CSD01 text
+and the MCP 2026-07-28 pages on 2026-10-22, and the list below is that checked version. The
+deadline is 18 Nov 2026 23:59 UTC, through the OASIS comment facility only (comment sign-up and the
+OASIS Feedback License first; not GitHub).
 
-1. **Cancellation affinity (JSON-RPC Appendix 4).** Propose an optional, application-defined
-   `application-properties` key carrying the cancelled request's `message-id` on cancellation
-   notifications. Because `message-id` is globally unique, a fan-out of cancels to all responder
-   instances becomes exact rather than best-effort. Cite the cross-principal hazard of matching on
-   the body `requestId` alone.
-2. **Subscription teardown inconsistency.** MCP's `/basic/patterns/cancellation` (MUST
-   `notifications/cancelled`) conflicts with `/basic/patterns/subscriptions` and MCP-AMQP §8
-   (SHOULD `complete` result). Ask the TC to state which the binding expects, and whether a
-   requester-sent `notifications/cancelled` for a listen id is the client-side teardown.
-3. **Undeliverable reply detection.** JSON-RPC §9 says a responder that "learns" it cannot deliver
-   SHOULD stop. Name the mechanism: a `rejected` or `released` disposition on the reply link, and
-   on brokers without a node, link detach with `amqp:not-found`. Otherwise implementations will
-   differ.
-4. **Mirror mismatch rule.** MCP's custom-transport section requires a binding that mirrors body
-   fields to define mismatch handling. MCP-AMQP defines no mirrors today but permits `subject`.
-   State that a `subject` ≠ `method` mismatch MUST be rejected, and how (a JSON-RPC error with
-   `-32020`, or a delivery disposition).
-5. **Principal binding.** Security scope is limited to SASL/TLS. Note that MCP authorization
-   decisions need a per-message principal. Ask whether the binding should recommend a
-   container-validated identity (as RabbitMQ does with 0-9.1 `user_id`) rather than leaving it
-   implicit.
-6. **0-9.1 profile.** Ask whether the TC would accept an informative annex mapping the binding onto
-   AMQP 0-9.1 (`message_id`, `reply_to`, `correlation_id`, direct reply-to), given most deployed MCP
-   brokers today are RabbitMQ 0-9.1. Offer this package's `BINDING.md` as input.
+1. **Cancellation affinity (JSON-RPC §9, Appendix 4; MCP-AMQP §8).**
+   - Propose an optional `application-properties` key on `notifications/cancelled` carrying the
+     cancelled request's `message-id`.
+   - It cannot be `correlation-id`, which §6.2 Table I forbids on requester-sent notifications.
+   - Because `message-id` is globally unique, a fan-out of cancels to every responder instance
+     becomes exact.
+   - The key is set by the sender, so §11.1 still applies: act only on a cancel from the request's
+     own authenticated principal. Cite the cross-client hazard of matching on the body `requestId`
+     alone.
+2. **Server-initiated teardown of a subscription stream is underspecified (MCP-AMQP §8).**
+   - MCP's `/basic/patterns/cancellation` says a server MUST send `notifications/cancelled` for the
+     listen id when it tears a stream down. `/basic/patterns/subscriptions` says it SHOULD send a
+     `complete` result.
+   - These are not contradictory, since both can be sent. But MCP-AMQP §8 mentions only the result.
+   - Ask the binding to reference both messages, put them on the same Reply Link, define their
+     order, and say which one ends the stream.
+   - Also ask it to say that a Client ends a stream voluntarily with `notifications/cancelled`.
+3. **Undeliverable reply detection (JSON-RPC §7, §9; MCP-AMQP §8).**
+   - Ask for a non-normative list of what "learns that it cannot deliver" looks like: a refused
+     sender attach (`amqp:not-found`), a reply link detached with an error, or a delivery settled
+     `rejected` (or repeatedly `released`).
+   - This is distinct from the Appendix 4 "Failure signalling" question, which is about the
+     requester.
+4. **Mismatch handling for mirrored fields, and error-code allocation (JSON-RPC §6.2, §10, §11.1,
+   Appendix 4; MCP-AMQP §6).**
+   - MCP requires a binding that mirrors body fields to define how mismatches are rejected.
+     MCP-AMQP inherits `subject` = `method` but defines no rejection.
+   - Ask for: reject with a JSON-RPC error and do not dispatch.
+   - Separately, the "Failure signalling" question proposes codes from -32000 to -32099. MCP
+     2026-07-28 reserves -32020 to -32099 for itself (-32020 `HeaderMismatch` is specified for HTTP
+     headers). So the binding should stay out of that band, or the code should be agreed with the
+     MCP maintainers.
+5. **Request authorization needs a container-validated principal (JSON-RPC §1, §11.1; MCP-AMQP §1,
+   §10.1).**
+   - Both drafts address reply-path authorization, not request authorization. MCP servers decide
+     authorization per tool.
+   - Ask for non-normative guidance: take those decisions from an identity the container has
+     authenticated, such as AMQP 1.0 `properties.user-id` validated against the connection, or the
+     SASL identity on a direct link. Never take them from sender-set application properties.
+   - Add the caveat that a routed topology may not preserve that identity.
+
+**Withdrawn from the earlier draft:** an informative AMQP 0-9.1 annex.
+- The TC's work products are AMQP 1.0.
+- RabbitMQ 4.x speaks AMQP 1.0 natively.
+- The claim that most MCP brokers use 0-9.1 was unsubstantiated.
+
+The 0-9.1 profile belongs in this package's own `BINDING.md`.
 
 ---
 

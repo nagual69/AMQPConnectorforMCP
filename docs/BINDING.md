@@ -608,7 +608,7 @@ The era of a message is the exchange it arrived through. No heuristic is applied
 | Request binding | `req.{svc}.#` | `mcp.request.#` and `mcp.client-notification.#` on the same shared request queue |
 | Correlation | `correlation_id` = the request's `message_id` | The client sets `correlation_id` on the request; the server echoes it (TRANSPORT_CONTRACT §2) |
 | Serving | Per-request serving engine | Each request served independently; `initialize` gates nothing (TRANSPORT_CONTRACT §3) |
-| Progress and log messages | Reply address only | Reply address only. This is the 1.2.0 leak fix, kept. |
+| Progress and log messages | Reply address only | Reply address only. **This changes 1.x**, which broadcasts them (rule 4). |
 | `*/list_changed` | Listen stream (§6.3) | Translated from change events onto broadcast `mcp.server-notification.*` |
 | Cancellation | §6.4 (exact) | Best-effort: legacy notifications compete like requests |
 | Mirrors checked | Yes (§8) | No; 1.x clients send none |
@@ -623,6 +623,15 @@ Rules:
    - The legacy era is deprecated at 2.0.0 and removed no earlier than 3.0.0 (plan D-5).
 3. In a single-instance deployment, legacy cancellation is exactly as reliable as in 1.x. Only
    pools make it best-effort, and 1.x did not support pools.
+4. Legacy progress and log messages move from broadcast to the reply address. Under 1.x, every
+   client sees every other client's progress and log content, which is the request-scoped leak
+   I3 exists to close.
+   - A 1.2.0 client passes a notification on its reply queue to the SDK unchanged, so it keeps
+     working.
+   - The side effect is that the notification clears that request's transport-level timer early.
+     The SDK's own request timeout stays in force.
+   - Pin P12 asserts this against the 1.2.0 client. A third-party 1.x client that ignores
+     notifications on its reply queue loses progress, but loses nothing else.
 
 ## 12. Mapping to OASIS AMQP 1.0 (CSD01)
 

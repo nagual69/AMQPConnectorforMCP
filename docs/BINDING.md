@@ -518,8 +518,8 @@ how mismatches are rejected. This section is that definition.
 2. Every published message **MUST** set `user_id` to the publishing connection's user. RabbitMQ
    rejects a publish whose `user_id` differs from the authenticated user, which makes `user_id` a
    per-message, broker-validated principal.
-   - The exception is a user tagged `impersonator`, which RabbitMQ lets set any `user_id`. No
-     client principal **MAY** carry that tag. A deployment that grants it to anything else accepts
+   - The exception is a user tagged `impersonator`, which RabbitMQ lets set any `user_id`. A
+     client principal **MUST NOT** carry that tag. A deployment that grants it to anything else accepts
      that principal as able to act as every user.
    - Through RabbitMQ federation or shovels, `user_id` survives only if the link preserves and
      validates it. A deployment that routes through an intermediary that does not **MUST** treat

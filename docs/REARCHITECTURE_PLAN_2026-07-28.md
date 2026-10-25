@@ -417,7 +417,8 @@ sequenceDiagram
   instance. Delivery always comes back through the instance's own event queue. This gives one path,
   one ordering and no double delivery. It also trivially satisfies the bus contract's "MUST NOT
   echo back to the listener that published".
-- **Lifetime.** `maxListenMs` defaults to 15 minutes, as required by OASIS §8. On expiry the server
+- **Lifetime.** OASIS §8 requires the server to bound each stream's lifetime but fixes no value.
+  `maxListenMs` defaults to 15 minutes, which is this binding's choice. On expiry the server
   sends a `complete` result and the client re-listens.
 - **Dead-client detection.** It is free with `mandatory` replies to a named reply queue: the first
   undeliverable notification ends the stream. On direct reply-to it is subject to the §5.3

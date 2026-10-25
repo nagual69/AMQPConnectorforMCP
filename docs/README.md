@@ -7,7 +7,8 @@
 - [Configuration](./configuration.md)
 - [Examples](./examples.md)
 - [Troubleshooting](./troubleshooting.md)
-- [Transport contract](./TRANSPORT_CONTRACT.md) (normative wire behaviour)
+- [Transport contract](./TRANSPORT_CONTRACT.md) (normative wire behaviour, 1.x)
+- [Binding specification](./BINDING.md) (draft; normative for 2.x once ratified: MCP 2026-07-28 over AMQP 0-9.1, mapped to OASIS AMQP 1.0)
 - [Re-architecture plan for MCP 2026-07-28](./REARCHITECTURE_PLAN_2026-07-28.md) (proposed)
 - Migration: see `src/transports/deprecated/MIGRATION_SUMMARY.md` for legacy JS to TS notes
 

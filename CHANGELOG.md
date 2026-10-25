@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+- [docs/BINDING.md](./docs/BINDING.md): the draft binding specification for MCP 2026-07-28 over AMQP. It covers the 0-9.1 topology, the message mapping, mirror checking with its mismatch rule, the cancellation-affinity mechanism, delivery and dead-letter policy, the principal model, dual-era serving, and the mapping to OASIS AMQP 1.0 CSD01. It is not normative until the maintainer ratifies decision D-1 and 2.0.0 implements it; 1.x behaviour is unchanged.
+
 ## [1.2.0] - 2026-10-22
 
 Consolidates the AMQP transport that Open Discovery 3.0 runs in production into this package, which is now its canonical home. The normative wire behaviour is [docs/TRANSPORT_CONTRACT.md](./docs/TRANSPORT_CONTRACT.md).

@@ -13,7 +13,8 @@
 - **Scope:** The 2025-era MCP protocol (`initialize` handshake, SDK v1). Moving to the stateless
   MCP 2026-07-28 protocol is planned in
   [REARCHITECTURE_PLAN_2026-07-28.md](./REARCHITECTURE_PLAN_2026-07-28.md), which proposes
-  superseding §1, §4 and §6 below. Until that lands, this document is what the code does.
+  superseding §1, §4 and §6 below. The draft 2.x binding is [BINDING.md](./BINDING.md). Until
+  that lands, this document is what the code does.
 
 ## Topology
 

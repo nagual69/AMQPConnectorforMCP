@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `amqp-mcp-transport/binding`: binding-core, the first piece of 2.0.0. It is the wire rules of [docs/BINDING.md](./docs/BINDING.md) as pure functions, with no amqplib, no SDK and no I/O. It covers routing keys and topology (§4), inbound classification against the §7.4 fate table, mirror checks (§8), deadlines (§7.1), cancellation affinity with the bounded pre-arrival record (§6.4), the outbound property builders and dead-letter copy (§5.2, §7.4), `authInfo` derivation (§9.2) and the redelivery policy (§7.2). Pins P2, P3, P7, P8 and the unit half of P11 are named tests, and each is mutation-verified. The 1.x exports and behaviour are unchanged.
+
 ### Documentation
+- [docs/spikes/phase2-2026-10-28](./docs/spikes/phase2-2026-10-28/README.md): the engine-B spike for 2.0.0, against SDK 2.4.0 and RabbitMQ 4.4.0, with its scripts.
+  - Engine B passed every gate:
+    - R1: an 81-tool per-request factory plus `fetch` costs 0.46 ms at p50 and 6.0 ms at p99;
+    - R2: `Mcp-Param-*` synthesis works;
+    - R3: the SSE relay keeps order and terminality.
+  - O-2 is resolved: RabbitMQ 4.4.0 silently drops a publish to a stale direct reply-to address. BINDING §7.3 and §14 now record this, and D-2 and D-3 in the plan carry the results.
+- BINDING.md corrections found while building binding-core:
+  - §7.4: the dead-letter copy carries the server's `user_id`, moves the client's to `x-mcp-original-user-id` and drops `expiration`. RabbitMQ would reject a copy that kept the client's `user_id`.
+  - §7.1: the deadline is an upper bound, because RabbitMQ does not decrement `expiration` in the queue. A request without a usable `expiration` gets a default deadline.
+  - §6.4 item 3: a fallback-keyed cancellation that names more than one exchange cancels none, and is never remembered.
+  - §9.2: the vhost in `iss` is percent-encoded.
+  - §5.2: a notification lacking `message_id` is still acted on.
 - [docs/BINDING.md](./docs/BINDING.md): the draft binding specification for MCP 2026-07-28 over AMQP. It covers the 0-9.1 topology, the message mapping, mirror checking with its mismatch rule, the cancellation-affinity mechanism, delivery and dead-letter policy, the principal model, dual-era serving, and the mapping to OASIS AMQP 1.0 CSD01. Decision D-1 was ratified on 2026-10-28, so it is the design 2.0.0 is built against. It becomes normative when 2.0.0 implements it; 1.x behaviour is unchanged.
 
 ## [1.2.0] - 2026-10-22

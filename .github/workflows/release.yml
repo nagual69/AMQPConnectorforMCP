@@ -6,7 +6,7 @@ name: Release
 # still an open decision (docs/REARCHITECTURE_PLAN_2026-07-28.md, D-6).
 #
 # The attached tarball is what consumers can pin instead of a git dependency, e.g.
-#   "amqp-mcp-transport": "https://github.com/nagual69/AMQPConnectorforMCP/releases/download/v1.2.0/amqp-mcp-transport-1.2.0.tgz"
+#   "amqp-mcp-transport": "https://github.com/VibeForge-Systems/amqp-mcp-transport/releases/download/v1.2.0/amqp-mcp-transport-1.2.0.tgz"
 # which npm installs without running a build and records with an integrity hash it checks.
 
 on:

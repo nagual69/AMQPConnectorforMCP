@@ -51,7 +51,7 @@ Consolidates the AMQP transport that Open Discovery 3.0 runs in production into 
 - `docs/TRANSPORT_CONTRACT.md` and `docs/REARCHITECTURE_PLAN_2026-07-28.md`.
 
 ### Fixed (packaging)
-- The build now emits `dist/index.js`, which `main` pointed at but which previously did not exist. The package also has an `exports` map, and a `prepare` script so `npm install github:nagual69/AMQPConnectorforMCP#<ref>` builds on install.
+- The build now emits `dist/index.js`, which `main` pointed at but which previously did not exist. The package also has an `exports` map, and a `prepare` script so `npm install github:VibeForge-Systems/amqp-mcp-transport#<ref>` builds on install.
 - Examples build separately to `dist-examples/` (`npm run build:examples`).
 - `npm run lint` works again: the ESLint config extended a non-existent config name.
 - Removed the "fully compliant with 2025-11-25" and "bidirectional" claims. Servers cannot initiate requests over this transport.

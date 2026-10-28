@@ -11,7 +11,7 @@ This transport targets the 2025-era MCP protocol (SDK v1). All messages are sent
 The package is not published to npm yet; install from GitHub (the `prepare` script builds it):
 
 ```bash
-npm install github:nagual69/AMQPConnectorforMCP#v1.2.0 @modelcontextprotocol/sdk amqplib
+npm install github:VibeForge-Systems/amqp-mcp-transport#v1.2.0 @modelcontextprotocol/sdk amqplib
 ```
 
 ### yarn

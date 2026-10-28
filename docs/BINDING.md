@@ -10,7 +10,8 @@
   It is the design v2.0.0 is built against, and changes to it now need the same care as changes to
   a contract. Until v2.0.0 ships, it describes the target, not the code. Version 1.x stays governed by
   [TRANSPORT_CONTRACT.md](./TRANSPORT_CONTRACT.md), and nothing here changes 1.x behaviour.
-- **Date:** 2026-10-25
+- **Date:** 2026-10-25. Revised 2026-10-28 with five corrections found while building binding-core
+  (§5.2, §6.4 item 3, §7.1, §7.4, §9.2).
 - **Protocol:** MCP 2026-07-28 ("modern era"). §11 also covers serving 2025-11-25 clients ("legacy
   era") alongside it.
 - **Profiles:**
@@ -192,6 +193,10 @@ Publish flags:
 - Every publish **MUST** set `mandatory: true` (§7.3).
 - `immediate` is unsupported by RabbitMQ and **MUST NOT** be set.
 
+A server **SHOULD** still act on a client notification that lacks `message_id`. It cannot be
+answered either way, and dead-lettering a cancellation for a missing property would lose the
+cancellation.
+
 This binding defines no `Mcp-Param-*` equivalent. A server **MUST NOT** require parameter mirrors
 over AMQP, even for tools whose schema declares `x-mcp-header`, because that requirement belongs
 to the Streamable HTTP binding.
@@ -333,7 +338,11 @@ following:
 3. Each instance matches as follows:
    - **Header present:** it looks up the exchange record by `(principal, mcp-request-message-id)`.
    - **Header absent** (a client implementing only OASIS): it falls back to
-     `(principal, params.requestId)` and accepts the ambiguity that this key carries.
+     `(principal, params.requestId)` and accepts the ambiguity that this key carries. If that key
+     names more than one exchange of the principal, the instance **MUST NOT** cancel any of them:
+     cancelling the wrong exchange is worse than missing a best-effort cancellation. A fallback-keyed
+     cancellation is also never remembered under item 5, because a body `id` does not identify a
+     future request.
    - **In both cases** the principal is the cancellation's broker-validated `user_id` (§9.1). An
      instance **MUST NOT** act on a cancellation whose principal differs from the request's, so
      client A can never cancel client B's `id: 1`.
@@ -374,6 +383,12 @@ same across the pool (§4.1 rule 6).
    discards a request before dispatch once its client has stopped waiting.
 2. The server derives the exchange deadline from `expiration`, measured from consume time, and
    aborts the exchange when the deadline passes.
+   - RabbitMQ does not decrement `expiration` while a message waits in a queue. The derived deadline
+     is therefore an upper bound on the client's real remaining wait. Item 4 is what makes that
+     safe.
+   - A request whose `expiration` is absent or not a non-negative decimal integer gets the server's
+     default deadline (`defaultRequestMs`, default 60000, the SDK's default request timeout), so the
+     exchange stays bounded (I5). A server **MAY** also cap every deadline with `maxRequestMs`.
 3. A request consumed with less than `minUsefulMs` (default 250 ms) remaining is dead-lettered with
    reason `deadline-exceeded` and not dispatched.
 4. The client's own timeout is authoritative. When it fires, the client sends the cancellation
@@ -437,8 +452,16 @@ body's `id`, or `null` if that cannot be read (OASIS JSON-RPC-AMQP §6.5).
 
 To **dead-letter** a message, the server:
 
-1. publishes a copy to `{ns}.mcp.dlx` with routing key `dead.{svc}.{reason}`, the original
-   properties, and header `x-mcp-reject-reason: {reason}`;
+1. publishes a copy to `{ns}.mcp.dlx` with routing key `dead.{svc}.{reason}`, the original body
+   and headers, and the original properties with two exceptions:
+   - `user_id` is the server's own. RabbitMQ rejects a publish whose `user_id` is not the
+     publishing connection's user, so the copy cannot keep the client's. The original principal
+     goes in header `x-mcp-original-user-id`, and is absent when the original had none.
+   - `expiration` is removed, so the evidence does not expire with the request. The dead queue's
+     own `x-message-ttl` bounds it instead.
+
+   It sets header `x-mcp-reject-reason: {reason}`. Both `x-mcp-*` headers overwrite any value the
+   client sent;
 2. waits for that publish to be confirmed;
 3. acks the original.
 
@@ -549,7 +572,8 @@ The serving entry passes the principal to the serving engine as the SDK's `AuthI
 ```
 
 - `iss` names the broker and virtual host that authenticated the principal. Two brokers'
-  `guest` users must not be mistaken for one another.
+  `guest` users must not be mistaken for one another. The vhost is percent-encoded as in an AMQP
+  URI, so the default vhost `/` gives `amqp://{brokerIdentity}/%2F`.
 - `extra.transport` lets an application tell an AMQP principal from an OAuth one, for example in
   audit records. Applications **MUST NOT** infer the transport from the shape of `sub`.
 - `scopes` come from a server-side mapping from principal to scopes. A RabbitMQ OAuth token's

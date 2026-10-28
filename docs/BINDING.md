@@ -433,10 +433,13 @@ same across the pool (§4.1 rule 6).
 
    OASIS JSON-RPC-AMQP §9 says a responder that learns it cannot deliver SHOULD stop processing.
    This is how a 0-9.1 responder learns it.
-3. **Direct reply-to.** Whether RabbitMQ 4.x returns, or silently discards, a publish to a stale
-   `amq.rabbitmq.reply-to` address is **unverified** (O-2). Until it is verified:
+3. **Direct reply-to.** RabbitMQ 4.4.0 **silently discards** a `mandatory` publish to a stale
+   `amq.rabbitmq.reply-to` address. The publish is confirmed with no `basic.return`, whether the
+   client closed its channel or its connection (O-2, measured 2026-10-28; see
+   [the Phase 2 spike](./spikes/phase2-2026-10-28/README.md) §5). A server therefore cannot learn
+   that a direct-reply-to client has gone. So:
    - a client **SHOULD** use a named exclusive reply queue for `subscriptions/listen`, where a
-     return is certain;
+     return is certain; a listen stream on direct reply-to lives until its lifetime bound;
    - direct reply-to is RECOMMENDED for ordinary requests, because losing replies with the channel
      matches MCP 2026-07-28's removal of resumability;
    - a client that uses direct reply-to **MUST** consume it in no-ack mode on the channel that
@@ -741,8 +744,8 @@ Each clause is carried by the pins in plan §8:
 | # | Item | Resolves when |
 |---|---|---|
 | O-1 | Error code for a mirror mismatch: `-32020`, provisional (§8) | MCP maintainers generalise `HeaderMismatch` beyond HTTP or allocate a code (OASIS comment 4) |
-| O-2 | Does RabbitMQ 4.x return a `mandatory` publish to a stale direct reply-to address? (§7.3) | Verified in the Phase 2 spike. If it does, the listen-stream SHOULD in §7.3 item 3 is dropped. |
+| O-2 | Does RabbitMQ 4.x return a `mandatory` publish to a stale direct reply-to address? (§7.3) | **Resolved 2026-10-28: no.** RabbitMQ 4.4.0 confirms the publish and silently drops it, so the listen-stream SHOULD in §7.3 item 3 stays. |
 | O-3 | The name `mcp-request-message-id` | OASIS responds to comment 1. If the TC adopts another name, this binding adopts it and accepts both for one minor version. |
 | O-4 | Listen-teardown order and terminal message (§6.3, item 4) | OASIS responds to comment 2 |
 | O-5 | Which 1.0 outcome RabbitMQ 4.x gives an unroutable reply (§12) | Verified when the 1.0 profile is built (plan Phase 5) |
-| O-6 | `minUsefulMs` default (250 ms) and the 5 s grace in §6.3 item 5 | Measured in the Phase 2 spike |
+| O-6 | `minUsefulMs` default (250 ms) and the 5 s grace in §6.3 item 5 | Partly measured in the Phase 2 spike. Engine B's per-exchange overhead is about 6 ms at p99, so 250 ms is about leaving the tool time to work, not about overhead. The defaults stand. The grace is re-measured over a real broker in the conformance suite. |

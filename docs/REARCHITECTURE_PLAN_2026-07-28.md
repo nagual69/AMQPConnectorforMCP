@@ -685,8 +685,8 @@ Sequencing rationale:
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
 | D-1 | Supersede OD contract §6.1 / §6.4 / §6.6 | Ratify the superseding ADR / keep Option 3 as-is and confine v2 to non-OD users | **Ratified 2026-10-28** (Open Discovery `docs/adr/ADR-amqp-2026-07-28-contract.md`). Keeping §6.4 would have made OD's AMQP path non-conformant for every 2026-era client. Keeping §6.1 would have forfeited AMQP's main advantage. D-8 (single instance) was ratified with it. |
-| D-2 | Serving engine | A / B→C / C directly | **B → C**, gated by the Phase 2 spike |
-| D-3 | Per-request factory budget for OD | e.g. p99 ≤ 5 ms / ≤ 20 ms / measure first | Measure first. If it fails, invest in registration cost (`preloadSchemas`, precompiled schemas) before abandoning per-request instances. |
+| D-2 | Serving engine | A / B→C / C directly | **B → C.** The Phase 2 spike passed every gate on SDK 2.4.0 on 2026-10-28 ([report](./spikes/phase2-2026-10-28/README.md)). 2.4.0's `classifyInboundRequest` does not make C viable yet, because the listen router and modern-only setup are still module-private. |
+| D-3 | Per-request factory budget for OD | e.g. p99 ≤ 5 ms / ≤ 20 ms / measure first | **Measured 2026-10-28:** an 81-tool factory plus `fetch` takes 0.46 ms at p50 and 6.0 ms at p99, with the GC tail included. **Proposed:** bridge overhead p99 ≤ 10 ms, excluding tool work, re-measured with OD's real plugins in Phase 3. The maintainer's call. |
 | D-4 | AMQP 1.0 priority | Phase 5 as planned / pull forward / never | **As planned.** RabbitMQ is the production broker; 1.0 matters for standard conformance and non-RabbitMQ brokers, not for OD today. |
 | D-5 | Legacy-era retention | Until v3.0 / fixed date / until the VS Code bridge migrates | Until the VS Code bridge and any other known v1 client migrate, and no earlier than v3.0 |
 | D-6 | Package name and licence | `@nagual69/amqp-mcp-transport` Apache-2.0 / MIT to match Edge | Rename. Licence is the maintainer's call; Apache-2.0's patent grant matters more for a transport others embed. |

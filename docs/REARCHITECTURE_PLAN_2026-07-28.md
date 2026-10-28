@@ -684,14 +684,14 @@ Sequencing rationale:
 
 | # | Decision | Options | Recommendation |
 |---|---|---|---|
-| D-1 | Supersede OD contract §6.1 / §6.4 / §6.6 | Ratify the superseding ADR / keep Option 3 as-is and confine v2 to non-OD users | **Ratify.** Keeping §6.4 makes OD's AMQP path non-conformant for every 2026-era client. Keeping §6.1 forfeits AMQP's main advantage. |
+| D-1 | Supersede OD contract §6.1 / §6.4 / §6.6 | Ratify the superseding ADR / keep Option 3 as-is and confine v2 to non-OD users | **Ratified 2026-10-28** (Open Discovery `docs/adr/ADR-amqp-2026-07-28-contract.md`). Keeping §6.4 would have made OD's AMQP path non-conformant for every 2026-era client. Keeping §6.1 would have forfeited AMQP's main advantage. D-8 (single instance) was ratified with it. |
 | D-2 | Serving engine | A / B→C / C directly | **B → C**, gated by the Phase 2 spike |
 | D-3 | Per-request factory budget for OD | e.g. p99 ≤ 5 ms / ≤ 20 ms / measure first | Measure first. If it fails, invest in registration cost (`preloadSchemas`, precompiled schemas) before abandoning per-request instances. |
 | D-4 | AMQP 1.0 priority | Phase 5 as planned / pull forward / never | **As planned.** RabbitMQ is the production broker; 1.0 matters for standard conformance and non-RabbitMQ brokers, not for OD today. |
 | D-5 | Legacy-era retention | Until v3.0 / fixed date / until the VS Code bridge migrates | Until the VS Code bridge and any other known v1 client migrate, and no earlier than v3.0 |
 | D-6 | Package name and licence | `@nagual69/amqp-mcp-transport` Apache-2.0 / MIT to match Edge | Rename. Licence is the maintainer's call; Apache-2.0's patent grant matters more for a transport others embed. |
 | D-7 | Reply-address default | Direct reply-to / exclusive named queue | **Direct reply-to for requests**, because its failure semantics match the spec's no-resumability stance. For listen streams, use a named exclusive queue unless the §5.3 return-on-stale verification passes. |
-| D-8 | OD scale-out | Run OD as one instance on the new binding / move OD's shared state (plugin registry, credentials, memory, tasks) to Postgres and run a pool | **One instance first.** The binding is conformant with N = 1, and the migration of shared state is a separate project with its own risk (R-OD). |
+| D-8 | OD scale-out | Run OD as one instance on the new binding / move OD's shared state (plugin registry, credentials, memory, tasks) to Postgres and run a pool | **Ratified 2026-10-28 with D-1: one instance.** The binding is conformant with N = 1, and the migration of shared state is a separate project with its own risk (R-OD). |
 
 ---
 

@@ -1,11 +1,14 @@
 # MCP over AMQP: binding specification
 
-- **Status:** Draft. It becomes normative for this package when two things are true:
+- **Status:** Draft, design ratified. It becomes normative for this package when two things are
+  true:
   - the maintainer ratifies decision D-1 of
-    [REARCHITECTURE_PLAN_2026-07-28.md](./REARCHITECTURE_PLAN_2026-07-28.md);
+    [REARCHITECTURE_PLAN_2026-07-28.md](./REARCHITECTURE_PLAN_2026-07-28.md). **Done 2026-10-28**,
+    through Open Discovery's `docs/adr/ADR-amqp-2026-07-28-contract.md`;
   - v2.0.0 implements it.
 
-  Until then, it describes the target, not the code. Version 1.x stays governed by
+  It is the design v2.0.0 is built against, and changes to it now need the same care as changes to
+  a contract. Until v2.0.0 ships, it describes the target, not the code. Version 1.x stays governed by
   [TRANSPORT_CONTRACT.md](./TRANSPORT_CONTRACT.md), and nothing here changes 1.x behaviour.
 - **Date:** 2026-10-25
 - **Protocol:** MCP 2026-07-28 ("modern era"). §11 also covers serving 2025-11-25 clients ("legacy

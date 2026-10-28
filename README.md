@@ -11,11 +11,11 @@
   <p>
     <a href="https://modelcontextprotocol.io/" target="_blank">Model Context Protocol</a>
     ·
-    <a href="https://github.com/nagual69/mcp-open-discovery" target="_blank">MCP Open Discovery</a>
+    <a href="https://github.com/VibeForge-Systems/mcp_open_discovery" target="_blank">MCP Open Discovery</a>
     ·
-    <a href="https://github.com/nagual69/AMQPConnectorforMCP" target="_blank">AMQP Transport</a>
+    <a href="https://github.com/VibeForge-Systems/amqp-mcp-transport" target="_blank">AMQP Transport</a>
     ·
-    <a href="https://github.com/nagual69/vscode-mcp-open-discovery-amqp-bridge" target="_blank">VS Code AMQP Bridge</a>
+    <a href="https://github.com/nagual69/vscode-amqp-extension-mcp-open-discovery" target="_blank">VS Code AMQP Bridge</a>
     ·
     <a href="https://www.linkedin.com/in/toby-schmeling-2200556/" target="_blank">LinkedIn</a>
   </p>
@@ -40,7 +40,7 @@ An AMQP-based transport implementation for the Model Context Protocol, enabling 
 The package is not on npm yet. Install it straight from GitHub; the `prepare` script builds it on install:
 
 ```bash
-npm install github:nagual69/AMQPConnectorforMCP#v1.2.0 amqplib @modelcontextprotocol/sdk
+npm install github:VibeForge-Systems/amqp-mcp-transport#v1.2.0 amqplib @modelcontextprotocol/sdk
 ```
 
 `@modelcontextprotocol/sdk` (>=1.17.1 <2) is a peer dependency, so the transport shares your application's SDK instance. The package is ESM; CommonJS consumers on Node ≥ 22.12 can `require()` it directly.

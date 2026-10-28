@@ -40,6 +40,14 @@
   ],
   "author": "Toby Schmeling",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VibeForge-Systems/amqp-mcp-transport.git"
+  },
+  "homepage": "https://github.com/VibeForge-Systems/amqp-mcp-transport#readme",
+  "bugs": {
+    "url": "https://github.com/VibeForge-Systems/amqp-mcp-transport/issues"
+  },
   "dependencies": {
     "amqplib": "^0.10.4"
   },

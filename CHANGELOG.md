@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Documentation
-- [docs/BINDING.md](./docs/BINDING.md): the draft binding specification for MCP 2026-07-28 over AMQP. It covers the 0-9.1 topology, the message mapping, mirror checking with its mismatch rule, the cancellation-affinity mechanism, delivery and dead-letter policy, the principal model, dual-era serving, and the mapping to OASIS AMQP 1.0 CSD01. It is not normative until the maintainer ratifies decision D-1 and 2.0.0 implements it; 1.x behaviour is unchanged.
+- [docs/BINDING.md](./docs/BINDING.md): the draft binding specification for MCP 2026-07-28 over AMQP. It covers the 0-9.1 topology, the message mapping, mirror checking with its mismatch rule, the cancellation-affinity mechanism, delivery and dead-letter policy, the principal model, dual-era serving, and the mapping to OASIS AMQP 1.0 CSD01. Decision D-1 was ratified on 2026-10-28, so it is the design 2.0.0 is built against. It becomes normative when 2.0.0 implements it; 1.x behaviour is unchanged.
 
 ## [1.2.0] - 2026-10-22
 
